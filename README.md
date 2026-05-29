@@ -1,80 +1,93 @@
 # AI Agent Project
 
-This project is designed to create an AI agent capable of ingesting data from various sources, processing it, and generating reports. The architecture is modular, allowing for easy expansion and maintenance.
+This repository contains ingestion connectors, storage helpers, and tests for a planned AI agent pipeline. It also includes synthetic Jira, Confluence, and meeting notes data under `data/` for local validation.
 
-## Project Structure
+## Project Layout
 
 ```
-ai-agent/
+VSF_Project/
+├── AI_Project_Intelligence_Agent_Plan.md
+├── README.md
+├── config.py
+├── data/
+│   ├── confluence/
+│   │   └── confluence_synthetic.json
+│   ├── jira/
+│   │   ├── jira_data_sources.json
+│   │   ├── jira_field_information.json
+│   │   ├── jira_issue_linktype_mapping.json
+│   │   ├── jira_issuelinktype_information.json
+│   │   ├── jira_issuetype_information.json
+│   │   ├── jira_issuetype_thematic_analysis.json
+│   │   └── jira_synthetic_AIP.json
+│   ├── meeting_notes/
+│   │   └── meeting_notes.json
+│   └── vault.db
+├── pyproject.toml
 ├── src/
-│   ├── main.py                     # Entry point for the application
+│   ├── main.py
 │   ├── agent/
-│   │   ├── __init__.py             # Initializes the agent module
-│   │   └── core.py                  # Core functionalities of the agent
-│   ├── tools/
-│   │   ├── __init__.py             # Initializes the tools module
-│   │   └── registry.py              # Tool registry for the agent
-│   ├── memory/
-│   │   ├── __init__.py             # Initializes the memory module
-│   │   └── store.py                 # Memory storage functionalities
+│   │   ├── __init__.py
+│   │   └── core.py
 │   ├── ingestion/
-│   │   ├── __init__.py             # Initializes the ingestion module
-│   │   ├── jira_connector.py        # Jira connector implementation
-│   │   ├── confluence_connector.py   # Confluence connector implementation
-│   │   └── meeting_notes_connector.py # Meeting notes ingestion implementation
-│   ├── agents/
-│   │   ├── __init__.py             # Initializes the agents module
-│   │   ├── report_agent.py          # ReportAgent class definition
-│   │   └── concern_engine.py        # ConcernEngine class implementation
+│   │   ├── __init__.py
+│   │   ├── confluence_connector.py
+│   │   ├── jira_connector.py
+│   │   └── meeting_notes_connector.py
+│   ├── memory/
+│   │   ├── __init__.py
+│   │   └── store.py
 │   ├── storage/
-│   │   ├── __init__.py             # Initializes the storage module
-│   │   ├── sqlite_store.py          # SQLiteStore class implementation
-│   │   └── chroma_store.py          # ChromaStore class implementation
-│   ├── guardrail/
-│   │   ├── __init__.py             # Initializes the guardrail module
-│   │   ├── sanitizer.py             # Sanitizer class implementation
-│   │   └── audit_log.py             # AuditLog class implementation
-│   └── mcp/
-│       ├── __init__.py             # Initializes the MCP module
-│       └── server.py                # MCP server functionality
-├── data/                            # Directory for storing ingested data
-│   ├── jira/                        # Jira data storage
-│   ├── confluence/                  # Confluence data storage
-│   └── meeting_notes/               # Meeting notes data storage
-├── output/                          # Directory for storing output files
-├── tests/
-│   └── test_agent.py                # Test files for the agent
-├── pyproject.toml                   # Project configuration file
-├── .gitignore                       # Git ignore file
-├── config.py                        # Configuration settings for the project
-├── requirements.txt                 # Project dependencies
-└── run_agent.sh                     # Shell script to run the agent
+│   │   ├── __init__.py
+│   │   ├── chroma_store.py
+│   │   ├── init_db.py
+│   │   └── sqlite_store.py
+│   └── tools/
+│       ├── __init__.py
+│       └── registry.py
+└── tests/
+    ├── conftest.py
+    ├── test_agent.py
+    ├── test_chunking.py
+    ├── test_confluence_connector.py
+    ├── test_ingestion_integration.py
+    ├── test_jira_connector.py
+    └── test_meeting_notes_connector.py
 ```
 
-## Getting Started
+## Setup
 
-1. **Clone the repository**:
-
-   ```
-   git clone <repository-url>
-   cd ai-agent
-   ```
-
-2. **Install dependencies**:
+1. Install dependencies with Poetry:
 
    ```
-   pip install -r requirements.txt
+   poetry install
    ```
 
-3. **Run the agent**:
+2. Initialize the SQLite database (optional, `data/vault.db` already exists):
+
    ```
-   bash run_agent.sh
+   poetry run python src/storage/init_db.py
    ```
 
-## Contributing
+## Configuration
 
-Contributions are welcome! Please open an issue or submit a pull request for any enhancements or bug fixes.
+- `config.py` loads environment variables via `python-dotenv`.
+- Set `OPENAI_API_KEY` in your shell or a local `.env` file.
+- Default paths: `data/vault.db` for SQLite and `data/chroma/` for ChromaDB.
 
-## License
+## Running and Tests
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- `src/main.py` is a wiring stub and currently imports modules that are not in the repository yet, so it is not runnable as-is.
+- Run tests with:
+
+  ```
+  poetry run pytest
+  ```
+
+## Data
+
+Synthetic data lives in `data/`:
+
+- Jira: structured issue and metadata JSON files.
+- Confluence: `confluence_synthetic.json` pages with linked Jira keys.
+- Meeting notes: `meeting_notes.json` with linked Jira items.

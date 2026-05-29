@@ -1,5 +1,6 @@
-[tool]
-name = "ai-agent"
+
+[tool.poetry]
+name = "vsf-project"
 version = "0.1.0"
 description = "A Python project for an AI agent that ingests data from various sources and generates reports."
 authors = ["Your Name <your.email@example.com>"]
@@ -14,7 +15,7 @@ fastapi = "*"
 uvicorn = "*"
 python-dotenv = "*"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "*"
 black = "*"
 flake8 = "*"
