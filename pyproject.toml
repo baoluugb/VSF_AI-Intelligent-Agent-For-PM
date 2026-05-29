@@ -1,0 +1,27 @@
+[tool]
+name = "ai-agent"
+version = "0.1.0"
+description = "A Python project for an AI agent that ingests data from various sources and generates reports."
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+openai = "*"
+chromadb = "*"
+langchain-text-splitters = "*"
+fastapi = "*"
+uvicorn = "*"
+python-dotenv = "*"
+
+[tool.poetry.dev-dependencies]
+pytest = "*"
+black = "*"
+flake8 = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -1,0 +1,180 @@
+{
+  "total": 4,
+  "source": "MeetingNotes",
+  "generated_at": "2025-05-29T10:00:00.000+0000",
+  "meetings": [
+    {
+      "meeting_id": "MTG-STORM-20250528",
+      "date": "2025-05-28",
+      "project": "STORM",
+      "linked_jira_epics": [],
+      "linked_jira_issues": ["STORM-1"],
+      "attendees": [
+        {
+          "name": "Sarah Lee",
+          "username": "sarah.lee",
+          "role": "Project Manager"
+        },
+        {
+          "name": "Dan Davis",
+          "username": "dan.davis",
+          "role": "Core Developer"
+        }
+      ],
+      "decisions": [
+        "Prioritize the removal of the legacy nimbus code path over new feature development for the rest of the week."
+      ],
+      "action_items": [
+        {
+          "jira_key": "STORM-1",
+          "owner": "dan.davis",
+          "description": "Remove legacy nimbus code path",
+          "due_date": "2025-05-30",
+          "status_in_meeting": "in_progress"
+        }
+      ],
+      "blockers": [],
+      "notes": "Dan Davis raised a critical concern regarding STORM-1. The deadline is May 30, but the legacy nimbus code path is heavily entangled with the core processing logic. There is a very high risk of missing the deadline.",
+      "content": "## Decisions\n- Prioritize the removal of the legacy nimbus code path over new feature development for the rest of the week.\n\n## Action Items\n- **STORM-1** (@dan.davis): Remove legacy nimbus code path. Status: in_progress. Due: 2025-05-30.\n\n## Notes\nDan Davis raised a critical concern regarding STORM-1. The deadline is May 30, but the legacy nimbus code path is heavily entangled with the core processing logic. There is a very high risk of missing the deadline.",
+      "_ground_truth": {
+        "intended_anomalies": [
+          "DEADLINE_RISK: STORM-1 is explicitly called out as a deadline risk in the meeting notes (due in 2 days)."
+        ]
+      }
+    },
+    {
+      "meeting_id": "MTG-ZOOKEEPER-20250526",
+      "date": "2025-05-26",
+      "project": "ZOOKEEPER",
+      "linked_jira_epics": ["ZOOKEEPER-45"],
+      "linked_jira_issues": ["ZOOKEEPER-1", "ZOOKEEPER-2"],
+      "attendees": [
+        { "name": "John Smith", "username": "john.smith", "role": "Tech Lead" },
+        {
+          "name": "Henry Anderson",
+          "username": "henry.anderson",
+          "role": "Developer"
+        },
+        { "name": "Thi Nga", "username": "thi.nga", "role": "Developer" }
+      ],
+      "decisions": [
+        "Delay the Netty 4.2 upgrade until the client migration script is fully tested."
+      ],
+      "action_items": [
+        {
+          "jira_key": "ZOOKEEPER-1",
+          "owner": "henry.anderson",
+          "description": "Upgrade recipes to use Netty 4.2",
+          "due_date": "2025-08-20",
+          "status_in_meeting": "blocked"
+        },
+        {
+          "jira_key": "ZOOKEEPER-2",
+          "owner": "thi.nga",
+          "description": "Write client migration script",
+          "due_date": "2025-05-31",
+          "status_in_meeting": "in_progress"
+        }
+      ],
+      "blockers": [
+        {
+          "blocking_key": "ZOOKEEPER-2",
+          "blocked_key": "ZOOKEEPER-1",
+          "description": "Cannot upgrade Netty until the client migration script is ready.",
+          "owner": "thi.nga"
+        }
+      ],
+      "notes": "Henry noted that ZOOKEEPER-1 remains blocked due to Netty 4.2 compatibility issues. Thi Nga is actively working on ZOOKEEPER-2, but since it's a blocker for the upcoming release and due on May 31, it requires immediate attention.",
+      "content": "## Decisions\n- Delay the Netty 4.2 upgrade until the client migration script is fully tested.\n\n## Action Items\n- **ZOOKEEPER-1** (@henry.anderson): Upgrade recipes to use Netty 4.2. Status: blocked. Due: 2025-08-20.\n- **ZOOKEEPER-2** (@thi.nga): Write client migration script. Status: in_progress. Due: 2025-05-31.\n\n## Blockers\n- **ZOOKEEPER-2** is blocking **ZOOKEEPER-1**: Cannot upgrade Netty until the client migration script is ready. (@thi.nga)\n\n## Notes\nHenry noted that ZOOKEEPER-1 remains blocked due to Netty 4.2 compatibility issues. Thi Nga is actively working on ZOOKEEPER-2, but since it's a blocker for the upcoming release and due on May 31, it requires immediate attention.",
+      "_ground_truth": {
+        "intended_anomalies": [
+          "DEADLINE_RISK: ZOOKEEPER-2 is due on May 31 and is a critical blocker.",
+          "HIDDEN_BLOCKER: ZOOKEEPER-2 blocking ZOOKEEPER-1 is mentioned in the notes, but this link does NOT exist in the Jira JSON."
+        ]
+      }
+    },
+    {
+      "meeting_id": "MTG-CROSS-20250527",
+      "date": "2025-05-27",
+      "project": "CROSS_TEAM",
+      "linked_jira_epics": [],
+      "linked_jira_issues": ["FLINK-1", "AIP-1"],
+      "attendees": [
+        {
+          "name": "Alice Wang",
+          "username": "alice.wang",
+          "role": "Scrum Master"
+        },
+        {
+          "name": "Maria Garcia",
+          "username": "maria.garcia",
+          "role": "FLINK Developer"
+        },
+        {
+          "name": "Hoang Nam",
+          "username": "hoang.nam",
+          "role": "AIP Developer"
+        }
+      ],
+      "decisions": [
+        "Re-open FLINK-1 as the integration tests are still failing."
+      ],
+      "action_items": [
+        {
+          "jira_key": "FLINK-1",
+          "owner": "maria.garcia",
+          "description": "Configure table-api without restart",
+          "due_date": "2025-07-11",
+          "status_in_meeting": "in_progress"
+        },
+        {
+          "jira_key": "AIP-1",
+          "owner": "hoang.nam",
+          "description": "Replace deprecated concern-engine API calls",
+          "due_date": "2025-06-16",
+          "status_in_meeting": "blocked"
+        }
+      ],
+      "blockers": [],
+      "notes": "Maria Garcia clarified the status of FLINK-1. It was accidentally marked as 'Closed' in Jira, but the table-api configuration feature still fails during integration tests. It is actively being worked on. Hoang Nam reported that AIP-1 is currently blocked because the new concern-engine API specs are not yet finalized.",
+      "content": "## Decisions\n- Re-open FLINK-1 as the integration tests are still failing.\n\n## Action Items\n- **FLINK-1** (@maria.garcia): Configure table-api without restart. Status: in_progress. Due: 2025-07-11.\n- **AIP-1** (@hoang.nam): Replace deprecated concern-engine API calls. Status: blocked. Due: 2025-06-16.\n\n## Notes\nMaria Garcia clarified the status of FLINK-1. It was accidentally marked as 'Closed' in Jira, but the table-api configuration feature still fails during integration tests. It is actively being worked on. Hoang Nam reported that AIP-1 is currently blocked because the new concern-engine API specs are not yet finalized.",
+      "_ground_truth": {
+        "intended_anomalies": [
+          "CROSS_SOURCE_CONFLICT: FLINK-1 is stated as 'in_progress' and actively being worked on in the meeting, but its status in the Jira JSON is 'Closed'."
+        ]
+      }
+    },
+    {
+      "meeting_id": "MTG-HIVE-20250522",
+      "date": "2025-05-22",
+      "project": "HIVE",
+      "linked_jira_epics": [],
+      "linked_jira_issues": ["HIVE-1", "BEAM-108"],
+      "attendees": [
+        {
+          "name": "Grace Taylor",
+          "username": "grace.taylor",
+          "role": "Developer"
+        }
+      ],
+      "decisions": [
+        "Investigate the serialization layer bottleneck before approving the PR."
+      ],
+      "action_items": [
+        {
+          "jira_key": "HIVE-1",
+          "owner": "grace.taylor",
+          "description": "Code review for serde PR",
+          "due_date": "2025-07-11",
+          "status_in_meeting": "open"
+        }
+      ],
+      "blockers": [],
+      "notes": "Grace Taylor is currently reviewing the serde PR (HIVE-1). She noted some performance degradation under high concurrency that needs to be addressed before merging.",
+      "content": "## Decisions\n- Investigate the serialization layer bottleneck before approving the PR.\n\n## Action Items\n- **HIVE-1** (@grace.taylor): Code review for serde PR. Status: open. Due: 2025-07-11.\n\n## Notes\nGrace Taylor is currently reviewing the serde PR (HIVE-1). She noted some performance degradation under high concurrency that needs to be addressed before merging.",
+      "_ground_truth": {
+        "intended_anomalies": []
+      }
+    }
+  ]
+}

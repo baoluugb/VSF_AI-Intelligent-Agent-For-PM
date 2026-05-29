@@ -1,0 +1,429 @@
+{
+  "Apache": {
+    "Improvement": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/4",
+      "id": "4",
+      "description": "An improvement or enhancement to an existing feature or task.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21140&avatarType=issuetype",
+      "name": "Improvement",
+      "subtask": false,
+      "avatarId": 21140
+    },
+    "Task": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/3",
+      "id": "3",
+      "description": "A task that needs to be done.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21148&avatarType=issuetype",
+      "name": "Task",
+      "subtask": false,
+      "avatarId": 21148
+    },
+    "Sub-task": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/7",
+      "id": "7",
+      "description": "The sub-task of the issue",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21146&avatarType=issuetype",
+      "name": "Sub-task",
+      "subtask": true,
+      "avatarId": 21146
+    },
+    "New Feature": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/2",
+      "id": "2",
+      "description": "A new feature of the product, which has yet to be developed.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21141&avatarType=issuetype",
+      "name": "New Feature",
+      "subtask": false,
+      "avatarId": 21141
+    },
+    "Bug": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/1",
+      "id": "1",
+      "description": "A problem which impairs or prevents the functions of the product.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21133&avatarType=issuetype",
+      "name": "Bug",
+      "subtask": false,
+      "avatarId": 21133
+    },
+    "Epic": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/15",
+      "id": "15",
+      "description": "Created by Jira Software - do not edit or delete. Issue type for a big user story that needs to be broken down.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21137&avatarType=issuetype",
+      "name": "Epic",
+      "subtask": false,
+      "avatarId": 21137
+    },
+    "Test": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/6",
+      "id": "6",
+      "description": "A new unit, integration or system test.",
+      "iconUrl": "https://issues.apache.org/jira/images/icons/issuetypes/requirement.png",
+      "name": "Test",
+      "subtask": false
+    },
+    "Wish": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/5",
+      "id": "5",
+      "description": "General wishlist item.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21140&avatarType=issuetype",
+      "name": "Wish",
+      "subtask": false,
+      "avatarId": 21140
+    },
+    "New JIRA Project": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/8",
+      "id": "8",
+      "description": "A request for a new JIRA project to be set up",
+      "iconUrl": "https://issues.apache.org/jira/images/icons/jiraman18.gif",
+      "name": "New JIRA Project",
+      "subtask": false
+    },
+    "RTC": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/9",
+      "id": "9",
+      "description": "An RTC request",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21141&avatarType=issuetype",
+      "name": "RTC",
+      "subtask": false,
+      "avatarId": 21141
+    },
+    "TCK Challenge": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10",
+      "id": "10",
+      "description": "Challenges made against the Sun Compatibility Test Suite",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21148&avatarType=issuetype",
+      "name": "TCK Challenge",
+      "subtask": false,
+      "avatarId": 21148
+    },
+    "Question": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11",
+      "id": "11",
+      "description": "A formal question. Initially added for the Legal JIRA.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Question",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Temp": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/12",
+      "id": "12",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Temp",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Brainstorming": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/13",
+      "id": "13",
+      "description": "A place to record back and forth on notions not yet formed enough to make a 'New Feature' or 'Task'",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Brainstorming",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Umbrella": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/14",
+      "id": "14",
+      "description": "An overarching type made of sub-tasks",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Umbrella",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Story": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/16",
+      "id": "16",
+      "description": "Created by Jira Software - do not edit or delete. Issue type for a user story.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21145&avatarType=issuetype",
+      "name": "Story",
+      "subtask": false,
+      "avatarId": 21145
+    },
+    "Technical task": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/17",
+      "id": "17",
+      "description": "A technical task.",
+      "iconUrl": "https://issues.apache.org/jira/images/icons/issuetypes/task_agile.png",
+      "name": "Technical task",
+      "subtask": true
+    },
+    "Dependency upgrade": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/18",
+      "id": "18",
+      "description": "Upgrading a dependency to a newer version",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21140&avatarType=issuetype",
+      "name": "Dependency upgrade",
+      "subtask": false,
+      "avatarId": 21140
+    },
+    "Suitable Name Search": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/19",
+      "id": "19",
+      "description": "A search for a suitable name for an Apache product",
+      "iconUrl": "https://issues.apache.org/jira/images/icons/issuetypes/requirement.png",
+      "name": "Suitable Name Search",
+      "subtask": false
+    },
+    "Documentation": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/20",
+      "id": "20",
+      "description": "Documentation or Website",
+      "iconUrl": "https://issues.apache.org/jira/images/icons/issuetypes/documentation.png",
+      "name": "Documentation",
+      "subtask": false
+    },
+    "Planned Work": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10000",
+      "id": "10000",
+      "description": "Assigned specifically to Contractors by the VP Infra or or other VP/ Board Member.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21144&avatarType=issuetype",
+      "name": "Planned Work",
+      "subtask": false,
+      "avatarId": 21144
+    },
+    "New Confluence Wiki": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10100",
+      "id": "10100",
+      "description": "A request for a new Confluence Wiki to be set up",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=23211&avatarType=issuetype",
+      "name": "New Confluence Wiki",
+      "subtask": false,
+      "avatarId": 23211
+    },
+    "New Git Repo": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10200",
+      "id": "10200",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21140&avatarType=issuetype",
+      "name": "New Git Repo",
+      "subtask": false,
+      "avatarId": 21140
+    },
+    "Github Integration": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10201",
+      "id": "10201",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Github Integration",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "New TLP ": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10202",
+      "id": "10202",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "New TLP ",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "New TLP - Common Tasks": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10204",
+      "id": "10204",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "New TLP - Common Tasks",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "SVN->GIT Migration": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10205",
+      "id": "10205",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21134&avatarType=issuetype",
+      "name": "SVN->GIT Migration",
+      "subtask": false,
+      "avatarId": 21134
+    },
+    "Blog - New Blog Request": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10206",
+      "id": "10206",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Blog - New Blog Request",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Blogs - New Blog User Account Request": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10207",
+      "id": "10207",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Blogs - New Blog User Account Request",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Blogs - Access to Existing Blog": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10208",
+      "id": "10208",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Blogs - Access to Existing Blog",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "New Bugzilla Project": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10209",
+      "id": "10209",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "New Bugzilla Project",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "SVN->GIT Mirroring": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10210",
+      "id": "10210",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "SVN->GIT Mirroring",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "IT Help": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10300",
+      "id": "10300",
+      "description": "For general IT problems and questions. Created by JIRA Service Desk.",
+      "iconUrl": "https://issues.apache.org/jira/servicedesk/issue-type-icons?icon=it-help",
+      "name": "IT Help",
+      "subtask": false
+    },
+    "Access": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10301",
+      "id": "10301",
+      "description": "For new system accounts or passwords. Created by JIRA Service Desk.",
+      "iconUrl": "https://issues.apache.org/jira/servicedesk/issue-type-icons?icon=access",
+      "name": "Access",
+      "subtask": false
+    },
+    "Request": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10400",
+      "id": "10400",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Request",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Project": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10600",
+      "id": "10600",
+      "description": "Which project does this relate to?",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21133&avatarType=issuetype",
+      "name": "Project",
+      "subtask": false,
+      "avatarId": 21133
+    },
+    "Proposal": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10700",
+      "id": "10700",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Proposal",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "GitBox Request": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10800",
+      "id": "10800",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "GitBox Request",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Dependency": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/10900",
+      "id": "10900",
+      "description": "Issue is dependent on ...",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Dependency",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Requirement": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11000",
+      "id": "11000",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Requirement",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Comment": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11001",
+      "id": "11001",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Comment",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Choose from below ...": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11002",
+      "id": "11002",
+      "description": "Choose an issue type.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Choose from below ...",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Outage": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11100",
+      "id": "11100",
+      "description": "Pagerduty will use this to create tickets when an Incident occurs.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Outage",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Office Hours": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11200",
+      "id": "11200",
+      "description": "Issues designed to be discussed during Office Hours meetings.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21144&avatarType=issuetype",
+      "name": "Office Hours",
+      "subtask": false,
+      "avatarId": 21144
+    },
+    "Pending Review": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11300",
+      "id": "11300",
+      "description": "Acknowledged but not planned work, or long range feature request in need of scoping and prioritization.",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Pending Review",
+      "subtask": false,
+      "avatarId": 21130
+    },
+    "Board Vote": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11400",
+      "id": "11400",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21136&avatarType=issuetype",
+      "name": "Board Vote",
+      "subtask": false,
+      "avatarId": 21136
+    },
+    "Director Vote": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11401",
+      "id": "11401",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21133&avatarType=issuetype",
+      "name": "Director Vote",
+      "subtask": true,
+      "avatarId": 21133
+    },
+    "Technical Debt": {
+      "self": "https://issues.apache.org/jira/rest/api/2/issuetype/11500",
+      "id": "11500",
+      "description": "",
+      "iconUrl": "https://issues.apache.org/jira/secure/viewavatar?size=xsmall&avatarId=21130&avatarType=issuetype",
+      "name": "Technical Debt",
+      "subtask": false,
+      "avatarId": 21130
+    }
+  }
+}
