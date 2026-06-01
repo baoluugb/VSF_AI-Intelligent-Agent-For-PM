@@ -4,7 +4,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](file:/
 
 ---
 
-## Overall Progress
+<!-- ## Overall Progress
 
 ```mermaid
 pie title Plan Completion by Week
@@ -16,7 +16,7 @@ pie title Plan Completion by Week
     "Week 6 - Packaging & Report" : 0
 ```
 
----
+--- -->
 
 ## Week 1 — Design & Data Prep
 
