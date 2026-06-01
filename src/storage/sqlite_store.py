@@ -174,3 +174,30 @@ class SQLiteStore:
             (source,),
         )
         connection.commit()
+
+    def insert_backlinks(self, backlinks: List[Dict[str, Any]]) -> int:
+        if not backlinks:
+            return 0
+        connection = self._ensure_connection()
+        values = [
+            (
+                link.get("source_entity_id"),
+                link.get("target_entity_id"),
+                link.get("link_type"),
+                link.get("context"),
+            )
+            for link in backlinks
+        ]
+        with connection:
+            connection.executemany(
+                """
+				INSERT INTO backlinks (
+					source_entity_id,
+					target_entity_id,
+					link_type,
+					context
+				) VALUES (?, ?, ?, ?)
+				""",
+                values,
+            )
+        return len(values)
