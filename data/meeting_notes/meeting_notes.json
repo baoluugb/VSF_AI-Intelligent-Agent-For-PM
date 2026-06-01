@@ -1,5 +1,5 @@
 {
-  "total": 4,
+  "total": 5,
   "source": "MeetingNotes",
   "generated_at": "2025-05-29T10:00:00.000+0000",
   "meetings": [
@@ -8,7 +8,9 @@
       "date": "2025-05-28",
       "project": "STORM",
       "linked_jira_epics": [],
-      "linked_jira_issues": ["STORM-1"],
+      "linked_jira_issues": [
+        "STORM-1"
+      ],
       "attendees": [
         {
           "name": "Sarah Lee",
@@ -46,16 +48,29 @@
       "meeting_id": "MTG-ZOOKEEPER-20250526",
       "date": "2025-05-26",
       "project": "ZOOKEEPER",
-      "linked_jira_epics": ["ZOOKEEPER-45"],
-      "linked_jira_issues": ["ZOOKEEPER-1", "ZOOKEEPER-2"],
+      "linked_jira_epics": [
+        "ZOOKEEPER-45"
+      ],
+      "linked_jira_issues": [
+        "ZOOKEEPER-1",
+        "ZOOKEEPER-2"
+      ],
       "attendees": [
-        { "name": "John Smith", "username": "john.smith", "role": "Tech Lead" },
+        {
+          "name": "John Smith",
+          "username": "john.smith",
+          "role": "Tech Lead"
+        },
         {
           "name": "Henry Anderson",
           "username": "henry.anderson",
           "role": "Developer"
         },
-        { "name": "Thi Nga", "username": "thi.nga", "role": "Developer" }
+        {
+          "name": "Thi Nga",
+          "username": "thi.nga",
+          "role": "Developer"
+        }
       ],
       "decisions": [
         "Delay the Netty 4.2 upgrade until the client migration script is fully tested."
@@ -98,7 +113,10 @@
       "date": "2025-05-27",
       "project": "CROSS_TEAM",
       "linked_jira_epics": [],
-      "linked_jira_issues": ["FLINK-1", "AIP-1"],
+      "linked_jira_issues": [
+        "FLINK-1",
+        "AIP-1"
+      ],
       "attendees": [
         {
           "name": "Alice Wang",
@@ -149,7 +167,10 @@
       "date": "2025-05-22",
       "project": "HIVE",
       "linked_jira_epics": [],
-      "linked_jira_issues": ["HIVE-1", "BEAM-108"],
+      "linked_jira_issues": [
+        "HIVE-1",
+        "BEAM-108"
+      ],
       "attendees": [
         {
           "name": "Grace Taylor",
@@ -174,6 +195,98 @@
       "content": "## Decisions\n- Investigate the serialization layer bottleneck before approving the PR.\n\n## Action Items\n- **HIVE-1** (@grace.taylor): Code review for serde PR. Status: open. Due: 2025-07-11.\n\n## Notes\nGrace Taylor is currently reviewing the serde PR (HIVE-1). She noted some performance degradation under high concurrency that needs to be addressed before merging.",
       "_ground_truth": {
         "intended_anomalies": []
+      }
+    },
+    {
+      "meeting_id": "MTG-AIP-20250528",
+      "date": "2025-05-28",
+      "project": "AIP",
+      "linked_jira_epics": [],
+      "linked_jira_issues": [
+        "AIP-30",
+        "AIP-37",
+        "AIP-53",
+        "AIP-67"
+      ],
+      "attendees": [
+        {
+          "name": "Hoang Nam",
+          "username": "hoang.nam",
+          "role": "Tech Lead"
+        },
+        {
+          "name": "Van Long",
+          "username": "van.long",
+          "role": "Backend Developer"
+        },
+        {
+          "name": "Minh Tuan",
+          "username": "minh.tuan",
+          "role": "Developer"
+        },
+        {
+          "name": "Alice Wang",
+          "username": "alice.wang",
+          "role": "Scrum Master"
+        }
+      ],
+      "decisions": [
+        "AIP-30 dependency update is still pending final review — do NOT close in Jira yet.",
+        "AIP-37 migration script must have an update by EOD 2025-05-29 or will be escalated.",
+        "AIP-53 auto-scaling feature is at high risk — due tomorrow, still In Progress.",
+        "AIP-67 Netty upgrade is a critical blocker for AIP-14 — needs immediate resolution."
+      ],
+      "action_items": [
+        {
+          "jira_key": "AIP-30",
+          "owner": "van.long",
+          "description": "Update report-agent dependencies to latest stable — pending review, not yet merged",
+          "due_date": "2025-05-30",
+          "status_in_meeting": "in_progress",
+          "notes": "Dependency bump PR is still open. The PR has not been merged yet. Team agreed this should NOT be marked Done until the merge is confirmed."
+        },
+        {
+          "jira_key": "AIP-37",
+          "owner": "minh.tuan",
+          "description": "Write concern-engine migration script",
+          "due_date": "2025-06-21",
+          "status_in_meeting": "in_progress",
+          "notes": "No update for over a week. Minh Tuan confirmed he has not touched this ticket since May 19. Marked as stalled — requires status update by EOD tomorrow."
+        },
+        {
+          "jira_key": "AIP-53",
+          "owner": "hoang.nam",
+          "description": "Allow ingestion-pipeline to auto-scale replicas",
+          "due_date": "2025-05-30",
+          "status_in_meeting": "in_progress",
+          "notes": "Due tomorrow (2025-05-30). Implementation is still in progress. High risk of missing deadline. Alice flagged this as a deadline risk."
+        },
+        {
+          "jira_key": "AIP-67",
+          "owner": "van.long",
+          "description": "Upgrade concern-engine to use Netty 4.2",
+          "due_date": "2025-07-04",
+          "status_in_meeting": "blocked",
+          "notes": "AIP-67 is blocking AIP-14 (Upgrade ingestion-pipeline to use Netty 4.2). Blocker has been open for 5 days. Van Long needs help from the infrastructure team to unblock."
+        }
+      ],
+      "blockers": [
+        {
+          "blocking_key": "AIP-67",
+          "blocked_key": "AIP-14",
+          "description": "Cannot upgrade ingestion-pipeline Netty until concern-engine Netty upgrade (AIP-67) is resolved.",
+          "owner": "van.long"
+        }
+      ],
+      "notes": "Four critical items were discussed.\n\n(1) CROSS-SOURCE CONFLICT — AIP-30: Van Long clarified that the dependency update PR is still awaiting review and has not been merged. The ticket must NOT be marked as Done in Jira yet. If Jira shows Done, that is incorrect and needs to be corrected.\n\n(2) STALLED — AIP-37: Minh Tuan has not updated the concern-engine migration script ticket since May 19 — 10 days with no activity. The team agreed this is stalled and needs an update by EOD 2025-05-29.\n\n(3) DEADLINE RISK — AIP-53: The auto-scaling feature is due 2025-05-30 (tomorrow). Status is still In Progress. Alice Wang flagged this as a deadline risk requiring immediate attention.\n\n(4) BLOCKER — AIP-67: The Netty 4.2 upgrade for concern-engine is blocking AIP-14 (ingestion-pipeline Netty upgrade). AIP-67 has been open as a blocker for 5 days with no resolution.",
+      "content": "## Decisions\n- AIP-30 dependency update is still pending final review — do NOT close in Jira yet.\n- AIP-37 migration script must have an update by EOD 2025-05-29 or will be escalated.\n- AIP-53 auto-scaling feature is at high risk — due tomorrow, still In Progress.\n- AIP-67 Netty upgrade is a critical blocker for AIP-14 — needs immediate resolution.\n\n## Action Items\n- **AIP-30** (@van.long): Update report-agent dependencies — pending review, not yet merged. Status: in_progress. Due: 2025-05-30.\n- **AIP-37** (@minh.tuan): Write concern-engine migration script. Status: in_progress (STALLED — no update since 2025-05-19). Due: 2025-06-21.\n- **AIP-53** (@hoang.nam): Allow ingestion-pipeline to auto-scale replicas. Status: in_progress. Due: 2025-05-30.\n- **AIP-67** (@van.long): Upgrade concern-engine to use Netty 4.2. Status: blocked. Due: 2025-07-04.\n\n## Blockers\n- **AIP-67** is blocking **AIP-14**: Cannot upgrade ingestion-pipeline Netty until concern-engine Netty upgrade is resolved. (@van.long)\n\n## Notes\nCROSS-SOURCE CONFLICT: AIP-30 is marked Done in Jira but the PR is still pending review and has NOT been merged. STALLED: AIP-37 has had no update since 2025-05-19 (10 days). DEADLINE RISK: AIP-53 is due tomorrow (2025-05-30) and still in progress. BLOCKER: AIP-67 has been blocking AIP-14 for 5 days with no resolution.",
+      "_ground_truth": {
+        "intended_anomalies": [
+          "CROSS_SOURCE_CONFLICT: AIP-30 is marked Done in Jira (resolved 2025-05-26) but meeting notes confirm it is still in_progress / pending merge.",
+          "STALLED: AIP-37 has been In Progress since 2025-05-19 — 10 days with no update, exceeding STALLED_DAYS=3.",
+          "DEADLINE_RISK: AIP-53 is due 2025-05-30 (1 day from meeting date) and status is still In Progress.",
+          "BLOCKER: AIP-67 blocks AIP-14 and has been open for 5 days, exceeding BLOCKER_OPEN_DAYS=2."
+        ]
       }
     }
   ]
