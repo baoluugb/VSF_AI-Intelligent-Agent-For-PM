@@ -9,7 +9,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](file:/
 ```mermaid
 pie title Plan Completion by Week
     "Week 1 - Design & Data" : 100
-    "Week 2 - Ingestion & KB" : 70
+    "Week 2 - Ingestion & KB" : 100
     "Week 3 - Report Agent" : 5
     "Week 4 - Concern Engine" : 5
     "Week 5 - MCP & Guardrails" : 0
@@ -46,7 +46,7 @@ pie title Plan Completion by Week
 | 2.2 | **Route 2 → SQLite** (entity upsert)         | ✅ Done    | [sqlite_store.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/storage/sqlite_store.py) — `upsert_entity()`, `bulk_upsert()`, `save_snapshot()`, `update_sync_log()`                                                                                        |
 | 2.2 | **Entity extraction** (regex + rules)        | ✅ Done    | `EntityExtractor` class orchestrates extraction of entities and backlinks from all 3 sources                                                                                                                                                            |
 | 2.3 | **Day-over-day diff**                        | ✅ Done    | [sqlite_store.py:L134-154](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/storage/sqlite_store.py#L134-L154) — `get_daily_diff()` with SQL join                                                                                                               |
-| —   | **Ingestion orchestrator** (run_pipeline.py) | ❌ Missing | No `src/ingestion/run_pipeline.py` exists. The pipeline that calls all 3 connectors + routes data to both stores is not implemented                                                                                                                                                     |
+| —   | **Ingestion orchestrator** (run_pipeline.py) | ✅ Done    | `run_pipeline.py` implements the CLI to wire Connectors, `EntityExtractor`, and Stores. Includes integration tests in `test_run_pipeline.py`.                                                                                                                                                     |
 
 ---
 
@@ -159,7 +159,7 @@ pie title Plan Completion by Week
 | Phase                         | Completion | Key Gap                                                                        |
 | ----------------------------- | ---------- | ------------------------------------------------------------------------------ |
 | **Week 1** — Design & Data    | **100%**   | All tasks complete                                                             |
-| **Week 2** — Ingestion & KB   | **~70%**   | Missing ingestion orchestrator (`run_pipeline.py`) to wire connectors → stores |
+| **Week 2** — Ingestion & KB   | **100%**   | All tasks complete                                                             |
 | **Week 3** — Report Agent     | **~5%**    | Only placeholder stubs. No OpenAI SDK integration, no ReAct loop, no tools     |
 | **Week 4** — Concern Engine   | **~5%**    | Config thresholds exist, but no detection rules or severity scoring            |
 | **Week 5** — MCP & Guardrails | **~0%**    | Nothing implemented                                                            |

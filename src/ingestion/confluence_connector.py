@@ -65,12 +65,12 @@ class ConfluenceConnector:
 
         pages: List[Dict[str, Any]] = []
         for filepath in json_files:
-            result = self._parse_file(str(filepath))
-            if result is not None:
-                pages.append(result)
+            results = self._parse_file(str(filepath))
+            if results:
+                pages.extend(results)
 
         logger.info(
-            "ConfluenceConnector: loaded %d/%d pages from %s",
+            "ConfluenceConnector: loaded %d pages from %d file(s) in %s",
             len(pages),
             len(json_files),
             self.folder_path,
@@ -81,7 +81,7 @@ class ConfluenceConnector:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _parse_file(self, filepath: str) -> Optional[Dict[str, Any]]:
+    def _parse_file(self, filepath: str) -> List[Dict[str, Any]]:
         """Parse and validate a single Confluence JSON file.
 
         Parameters
@@ -91,8 +91,8 @@ class ConfluenceConnector:
 
         Returns
         -------
-        dict | None
-            Normalised page dict, or ``None`` if the file is invalid.
+        list[dict]
+            Normalised page dicts found in the file.
         """
         path = Path(filepath)
 
@@ -100,56 +100,70 @@ class ConfluenceConnector:
             raw: Dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Skipping %s — could not read/parse: %s", path.name, exc)
-            return None
+            return []
+            
+        items_to_process = raw.get("pages", [raw]) if isinstance(raw, dict) else raw
+        if not isinstance(items_to_process, list):
+            logger.warning("Skipping %s — unexpected JSON structure.", path.name)
+            return []
 
-        # Validate required fields
-        missing = _REQUIRED_FIELDS - raw.keys()
-        if missing:
-            logger.warning(
-                "Skipping %s — missing required fields: %s",
-                path.name,
-                sorted(missing),
-            )
-            return None
-
-        # Validate non-empty required fields
-        for field in _REQUIRED_FIELDS:
-            if not raw.get(field):
+        results = []
+        for item in items_to_process:
+            # Validate required fields
+            missing = _REQUIRED_FIELDS - item.keys()
+            if missing:
                 logger.warning(
-                    "Skipping %s — required field %r is empty.", path.name, field
+                    "Skipping an item in %s — missing required fields: %s",
+                    path.name,
+                    sorted(missing),
                 )
-                return None
+                continue
 
-        page_id: str = str(raw["page_id"])
+            # Validate non-empty required fields
+            is_valid = True
+            for field in _REQUIRED_FIELDS:
+                if not item.get(field):
+                    logger.warning(
+                        "Skipping an item in %s — required field %r is empty.", path.name, field
+                    )
+                    is_valid = False
+                    break
+            
+            if not is_valid:
+                continue
 
-        # Normalise status — fall back to "draft" if unrecognised
-        status: str = str(raw.get("status") or "draft")
-        if status not in _VALID_STATUSES:
-            logger.warning(
-                "Page %s has unrecognised status %r — treating as 'draft'.",
-                page_id,
-                status,
-            )
-            status = "draft"
+            page_id: str = str(item["page_id"])
 
-        linked_jira_epics: List[str] = [
-            str(e) for e in (raw.get("linked_jira_epics") or [])
-        ]
-        tags: List[str] = [str(t) for t in (raw.get("tags") or [])]
+            # Normalise status — fall back to "draft" if unrecognised
+            status: str = str(item.get("status") or "draft")
+            if status not in _VALID_STATUSES:
+                logger.warning(
+                    "Page %s has unrecognised status %r — treating as 'draft'.",
+                    page_id,
+                    status,
+                )
+                status = "draft"
 
-        return {
-            "source": "confluence",
-            "source_id": page_id,
-            "title": str(raw["title"]),
-            "space": str(raw["space"]),
-            "author": str(raw.get("author") or ""),
-            "last_updated": str(raw.get("last_updated") or ""),
-            "status": status,
-            "linked_jira_epics": linked_jira_epics,
-            "tags": tags,
-            "text_content": str(raw["content"]),
-            "url": self._build_url(page_id),
-        }
+            linked_jira_epics: List[str] = [
+                str(e) for e in (item.get("linked_jira_epics") or [])
+            ]
+            tags: List[str] = [str(t) for t in (item.get("tags") or [])]
+
+            results.append({
+                "source": "confluence",
+                "source_id": page_id,
+                "title": str(item["title"]),
+                "space": str(item["space"]),
+                "author": str(item.get("author") or ""),
+                "last_updated": str(item.get("last_updated") or ""),
+                "status": status,
+                "linked_jira_epics": linked_jira_epics,
+                "tags": tags,
+                "text_content": str(item["content"]),
+                "url": self._build_url(page_id),
+            })
+            
+        return results
 
     def _build_url(self, page_id: str) -> str:
         """Return a placeholder Confluence URL for the given page ID.
