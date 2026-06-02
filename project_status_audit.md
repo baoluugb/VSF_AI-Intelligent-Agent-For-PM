@@ -52,12 +52,12 @@ pie title Plan Completion by Week
 
 ## Week 3 — Report Agent (OpenAI SDK + ReAct Loop)
 
-| #   | Task                                                              | Status         | Evidence                                                                                                                                                                        |
-| --- | ----------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3.1 | **Tool definitions** (query_chroma, query_sqlite, get_daily_diff) | ❌ Not started | [tools/registry.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/tools/registry.py) is a generic placeholder, no OpenAI function schemas defined    |
-| 3.2 | **ReAct loop** (~50 lines, OpenAI SDK)                            | ❌ Not started | [agent/core.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/agent/core.py) is a 20-line placeholder class (`CoreAgent`) with no OpenAI integration |
-| 3.3 | **Citation enforcement** (system prompt)                          | ❌ Not started | No system prompt defined anywhere                                                                                                                                               |
-| —   | **report_agent.py**                                               | ❌ Not started | File does not exist. `main.py` imports `agents.report_agent.ReportAgent` which doesn't exist                                                                                    |
+| #   | Task                                                              | Status     | Evidence                                                                                                                                                                                                 |
+| --- | ----------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1 | **Tool definitions** (query_chroma, query_sqlite, get_daily_diff) | ✅ Done    | [tools/registry.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/tools/registry.py) — 3 OpenAI function-calling schemas + `dispatch_tool()` router wired to ChromaStore & SQLiteStore |
+| 3.2 | **ReAct loop** (~50 lines, OpenAI SDK)                            | ✅ Done    | [agents/report_agent.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/agents/report_agent.py) — `run_report_agent()` pure OpenAI SDK loop, max 5 iterations, tool dispatch |
+| 3.3 | **Citation enforcement** (system prompt)                          | ✅ Done    | `SYSTEM_PROMPT` in [agents/report_agent.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/agents/report_agent.py) — every claim must cite `[source_id]`, unsourced claims FORBIDDEN |
+| —   | **report_agent.py**                                               | ✅ Done    | [src/agents/report_agent.py](file:///c:/Users/nullptr____/Desktop/VSF_AI-Intelligent-Agent-For-PM/src/agents/report_agent.py) — `ReportAgent` class + CLI entry-point, 20/20 tests passing               |
 
 ---
 
@@ -160,7 +160,7 @@ pie title Plan Completion by Week
 | ----------------------------- | ---------- | ------------------------------------------------------------------------------ |
 | **Week 1** — Design & Data    | **100%**   | All tasks complete                                                             |
 | **Week 2** — Ingestion & KB   | **100%**   | All tasks complete                                                             |
-| **Week 3** — Report Agent     | **~5%**    | Only placeholder stubs. No OpenAI SDK integration, no ReAct loop, no tools     |
+| **Week 3** — Report Agent     | **100%**   | Tool definitions, ReAct loop, citation enforcement, 20/20 tests ✅              |
 | **Week 4** — Concern Engine   | **~5%**    | Config thresholds exist, but no detection rules or severity scoring            |
 | **Week 5** — MCP & Guardrails | **~0%**    | Nothing implemented                                                            |
 | **Week 6** — Packaging        | **~0%**    | Nothing implemented                                                            |
