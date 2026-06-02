@@ -27,9 +27,20 @@ The system prompt (``SYSTEM_PROMPT``) is the primary citation guardrail:
 """
 from __future__ import annotations
 
+import sys
+import os
+
+# Ensure project root and src/ are in sys.path for direct script execution
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_dir = os.path.dirname(_current_dir)
+_root_dir = os.path.dirname(_src_dir)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
+
 import json
 import logging
-import os
 from datetime import date
 from typing import Any, Dict, List, Optional
 

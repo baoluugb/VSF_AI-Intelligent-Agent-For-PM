@@ -142,6 +142,18 @@ class TestRunReportAgent:
             result = run_report_agent("Generate today's report.", report_date="2025-05-21")
         assert "Final report text" in result
 
+    def test_client_initialization_uses_env_configs(self):
+        """Verify that the OpenAI client constructor receives correct api_key and base_url from config."""
+        with patch("agents.report_agent.openai.OpenAI") as MockOpenAI:
+            MockOpenAI.return_value = self._make_mock_client("Test report.")
+            run_report_agent("Generate report.")
+            
+            MockOpenAI.assert_called_once()
+            _, kwargs = MockOpenAI.call_args
+            assert kwargs.get("api_key") == "sk-8d1196cbd753bc193c99b377298828135916b4ccd5204ef5fdacb77a197987d0"
+            assert kwargs.get("base_url") == "https://ckey.vn/v1"
+
+
     def test_max_iterations_returns_warning(self):
         """Agent should return a warning string if it always calls tools and never finishes."""
         mock_tc = MagicMock()
