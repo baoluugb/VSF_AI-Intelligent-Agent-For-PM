@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from config import DB_PATH
@@ -47,6 +47,26 @@ class SQLiteStore:
         connection = self._ensure_connection()
         cursor = connection.execute(sql, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
+
+    def insert_audit_log(
+        self, source_id: str, field: str, flag_type: str, snippet: str
+    ) -> None:
+        """Append a guardrail audit record: timestamp | source_id | field | flag_type | snippet."""
+        connection = self._ensure_connection()
+        connection.execute(
+            """
+            INSERT INTO audit_log (timestamp, source_id, field, flag_type, snippet)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                source_id,
+                field,
+                flag_type,
+                snippet,
+            ),
+        )
+        connection.commit()
 
     def upsert_entity(self, entity: Dict[str, Any]) -> None:
         connection = self._ensure_connection()
