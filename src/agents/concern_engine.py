@@ -138,17 +138,27 @@ class ConcernEngine:
     # ------------------------------------------------------------------
 
     def _rule_deadline_risk(self, db: "SQLiteStore") -> List[Dict[str, Any]]:
-        """Not-done tasks within ``deadline_risk_days`` of (or past) their due date."""
+        """Not-done tasks whose due date is *near* — within ``deadline_risk_days``
+        either side of the reference date (approaching, or only just overdue).
+
+        A near-deadline window (not "anything overdue") is used deliberately: a
+        task overdue by months is a stalled/abandoned concern, not an
+        *approaching*-deadline risk, and flagging every overdue task floods the
+        result with false positives.
+        """
         sql = """
             SELECT task_id, assignee, status, due_date,
                    julianday(due_date) - julianday(?) AS days_remaining
             FROM entities
             WHERE status != 'Done'
               AND due_date IS NOT NULL AND due_date != ''
-              AND julianday(due_date) - julianday(?) <= ?
+              AND julianday(due_date) BETWEEN julianday(?) - ? AND julianday(?) + ?
             ORDER BY days_remaining ASC
         """
-        rows = db.run_query(sql, (self._ref, self._ref, self.deadline_risk_days))
+        rows = db.run_query(
+            sql,
+            (self._ref, self._ref, self.deadline_risk_days, self._ref, self.deadline_risk_days),
+        )
         concerns: List[Dict[str, Any]] = []
         for r in rows:
             if r["days_remaining"] is None:
