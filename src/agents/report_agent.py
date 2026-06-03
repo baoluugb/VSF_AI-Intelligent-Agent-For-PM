@@ -1,217 +1,192 @@
 """Report Agent — OpenAI SDK ReAct loop with citation enforcement.
 
-This module provides:
-  - ``SYSTEM_PROMPT``      : citation-enforcing system prompt (Task 3.3)
-  - ``run_report_agent()`` : the ~50-line ReAct loop (Task 3.2)
-  - ``ReportAgent``        : thin class wrapper (for import compatibility with main.py)
+Public surface
+--------------
+``SYSTEM_PROMPT``       : citation-enforcing system prompt.
+``run_report_agent()``  : the ReAct loop that drives the OpenAI model + tools.
 
-Architecture
-------------
-The agent uses *OpenAI Function Calling* with a hand-written ReAct loop instead
-of LangChain.  Every iteration:
-  1. Send the full conversation history (system + user + previous tool results)
-     to the OpenAI Chat Completions API.
-  2. If the model returns tool_calls → execute them via ``dispatch_tool``,
-     append results as ``role="tool"`` messages, continue.
-  3. If the model returns a plain text response → done, return it.
-  4. Safety net: stop after ``max_iterations`` rounds to prevent infinite loops.
-
-Citation Enforcement (Task 3.3)
---------------------------------
-The system prompt (``SYSTEM_PROMPT``) is the primary citation guardrail:
-  - Every factual claim MUST be followed by a ``[source_id]`` taken from the
-    ``source_id`` field in the tool result.
-  - Claims without a verifiable ``source_id`` are FORBIDDEN.
-  - The agent is also instructed to prefer ``query_sqlite`` for definitive task
-    state and ``query_chroma`` for narrative / contextual information.
+The agent uses hand-written OpenAI Function Calling (no LangChain).  Each
+iteration sends the running message history to the model; if the model asks for
+a tool it is executed via :func:`agents.tools.dispatch_tool` and the result is
+fed back; once the model answers in plain text the report is returned.
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
-# Ensure project root and src/ are in sys.path for direct script execution
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_src_dir = os.path.dirname(_current_dir)
-_root_dir = os.path.dirname(_src_dir)
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
-if _src_dir not in sys.path:
-    sys.path.insert(0, _src_dir)
+# --- Make the module runnable from any entry point (CLI, import, tests) ------
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))   # .../src/agents
+_SRC_DIR = os.path.dirname(_THIS_DIR)                     # .../src
+_ROOT_DIR = os.path.dirname(_SRC_DIR)                     # repo root
+for _p in (_ROOT_DIR, _SRC_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import json
 import logging
-from datetime import date
-from typing import Any, Dict, List, Optional
+from datetime import date as _date
+from typing import Any, Dict, List
 
 import openai
 
-from config import MAX_AGENT_ITERATIONS, OPENAI_API_KEY, CHROMA_PATH, DB_PATH, OPENAI_BASE_URL, OPENAI_MODEL
+from config import (
+    CHROMA_PATH,
+    MAX_AGENT_ITERATIONS,
+    OPENAI_API_KEY,
+    OPENAI_BASE_URL,
+    OPENAI_MODEL,
+)
+from agents.tools import TOOLS, dispatch_tool
 from storage.chroma_store import ChromaStore
 from storage.sqlite_store import SQLiteStore
-from tools.registry import TOOLS, dispatch_tool
 
 logger = logging.getLogger(__name__)
 
+# Model is read from config (.env: OPENAI_MODEL) so it can target the
+# ckey.vn-hosted model without code changes. Defaults to gpt-4o-mini.
+MODEL = OPENAI_MODEL
+
+
 # ---------------------------------------------------------------------------
-# Task 3.3 — Citation enforcement: System Prompt
+# System prompt — citation enforcement + output contract
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are the AI Project Intelligence Agent — a senior project analyst that \
-generates concise, accurate daily status reports for a software engineering team.
+You are the AI Project Intelligence Agent — a senior project analyst that writes \
+concise, accurate daily status reports for a software engineering team.
 
-## ROLE
-Synthesise information from three sources:
-  1. **Jira** (authoritative task status) — accessed via `query_sqlite`
-  2. **Confluence** (design docs, decisions) — accessed via `query_chroma`
-  3. **Meeting Notes** (action items, verbal commitments) — accessed via `query_chroma`
+You have three tools to gather facts:
+  - `get_daily_diff(date)`  → tasks whose status/assignee changed today.
+  - `query_sqlite(entity_id)` → the authoritative current state of one task.
+  - `query_chroma(query, source_filter, epic_filter)` → semantic search over \
+Confluence design docs and Meeting Notes.
 
-## CITATION RULES (MANDATORY — non-negotiable)
-Every factual claim you make MUST be followed immediately by a citation in the \
-format **[source_id]** where `source_id` is the exact value of the `source_id` \
-field returned by the tool that provided the fact.
+## CITATION RULES (MANDATORY)
+Every factual claim you write MUST be followed immediately by a citation of the \
+form `[source_id]`, where `source_id` is taken from the `source_ids` list (or the \
+`result` metadata) returned by a tool. Cite the exact id you were given.
 
-  ✅ CORRECT : "Task AIP-45 is still 'In Progress' as of today [AIP-45]."
-  ✅ CORRECT : "The architecture decision to use ChromaDB was documented in \
-[CONF-012]."
-  ✅ CORRECT : "Minh Tuan committed to finishing the pipeline by 2025-05-24 \
-[MTG-2025-05-21]."
+  ✅ "AIP-45 is still 'In Progress' as of today [AIP-45]."
+  ✅ "The team chose ChromaDB for semantic search [CONF-012]."
+  ❌ "AIP-45 appears to be stuck."          ← no source_id
+  ❌ "According to the meeting, ..."          ← vague, no [id]
 
-  ❌ FORBIDDEN : "Task AIP-45 appears to be stuck."  ← no source_id cited
-  ❌ FORBIDDEN : "According to the meeting, ..."       ← vague reference, no [id]
-  ❌ FORBIDDEN : Asserting anything you did not retrieve via a tool call.
+## NO HALLUCINATION
+Only state things that appear in a tool result. If a tool returns empty results \
+(no rows, `found: false`, or an empty list), DO NOT invent or guess. Write \
+"(No verified data found.)" for that item instead. Never fabricate task ids, \
+dates, names, or statuses.
 
-If you cannot find a verifiable source for a claim, DO NOT write that claim. \
-Instead write: "(No verified data found for this item.)"
+## OUTPUT FORMAT
+Return a Markdown report with EXACTLY these four sections, in this order:
 
-## TOOL USAGE STRATEGY
-- Use `get_daily_diff` FIRST to understand what changed since yesterday.
-- Use `query_sqlite` to confirm the current state of any specific task mentioned.
-- Use `query_chroma` with `source_filter="meeting_notes"` to check for action \
-items and commitments that may conflict with Jira status.
-- Use `query_chroma` with `source_filter="confluence"` to surface relevant \
-design context when explaining a risk or decision.
+## Overview
+A 2-3 sentence executive summary of the day.
 
-## REPORT FORMAT
-Produce a Markdown report with these sections:
-1. **Summary** — 2-3 sentence executive overview of the day
-2. **Changes Since Yesterday** — bullet list of status/assignee changes (from \
-`get_daily_diff`)
-3. **At-Risk Tasks** — tasks with deadline risk, staleness, or blockers
-4. **Key Decisions & Context** — relevant Confluence pages or meeting notes
-5. **Action Items** — clear next steps with owners
+## Changes Today
+Bullet list of status/assignee changes from `get_daily_diff`. If none, say so.
 
-Every bullet must end with at least one [source_id] citation.
+## Concerns
+Tasks that are at risk (stale, near deadline, blocked) or that conflict across \
+sources (e.g. Jira says Done but a meeting note says pending).
+
+## Next Actions
+Clear, owner-tagged next steps.
+
+Every bullet and every claim must end with at least one `[source_id]` citation.
 """
 
+
 # ---------------------------------------------------------------------------
-# Task 3.2 — ReAct Loop
+# OpenAI client
 # ---------------------------------------------------------------------------
 
+def _make_client() -> "openai.OpenAI":
+    """Build an OpenAI client from config (supports an OpenAI-compatible proxy)."""
+    client_kwargs: Dict[str, Any] = {"api_key": OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")}
+    if OPENAI_BASE_URL:
+        client_kwargs["base_url"] = OPENAI_BASE_URL
+    return openai.OpenAI(**client_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# ReAct loop
+# ---------------------------------------------------------------------------
 
 def run_report_agent(
     user_query: str,
-    *,
-    report_date: Optional[str] = None,
-    max_iterations: int = MAX_AGENT_ITERATIONS,
-    sqlite_store: Optional[SQLiteStore] = None,
-    chroma_store: Optional[ChromaStore] = None,
-    model: str = OPENAI_MODEL,
+    date: str,
+    sqlite_store: SQLiteStore,
+    chroma_store: ChromaStore,
 ) -> str:
-    """Run the Report Agent ReAct loop and return the final report string.
+    """Run the Report Agent ReAct loop and return the final Markdown report.
 
     Parameters
     ----------
     user_query:
-        The high-level question or instruction from the user / orchestrator.
-        Example: ``"Generate today's project status report."``.
-    report_date:
-        ISO date (YYYY-MM-DD) that scopes the daily diff.  Defaults to today.
-    max_iterations:
-        Safety cap on the number of think-act cycles (default from config).
+        The instruction from the user / orchestrator, e.g.
+        ``"Generate today's project status report."``.
+    date:
+        ISO date (YYYY-MM-DD) that scopes the daily diff.
     sqlite_store:
-        Pre-opened SQLite store (for testing or shared sessions).  A new one is
-        created if not provided.
+        An open :class:`storage.sqlite_store.SQLiteStore`.
     chroma_store:
-        Pre-opened Chroma store (for testing or shared sessions).  A new one is
-        created if not provided.
-    model:
-        OpenAI model identifier.
+        An open :class:`storage.chroma_store.ChromaStore`.
 
     Returns
     -------
     str
-        The agent's final Markdown report, or an error/timeout message.
+        The agent's Markdown report. If the agent exhausts
+        ``MAX_AGENT_ITERATIONS`` it returns the best partial report it can
+        produce, followed by an explicit caveat.
     """
-    api_key = OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")
-    client_kwargs = {"api_key": api_key}
-    if OPENAI_BASE_URL:
-        client_kwargs["base_url"] = OPENAI_BASE_URL
-    client = openai.OpenAI(**client_kwargs)
-
-    # Resolve report date
-    target_date = report_date or date.today().isoformat()
-
-    # Augment user query with the target date so the agent knows which diff to pull
-    enriched_query = (
-        f"{user_query}\n\n"
-        f"[Context: today's date is {target_date}. "
-        f"Use get_daily_diff with date='{target_date}' to see what changed.]"
-    )
+    client = _make_client()
 
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": enriched_query},
+        {
+            "role": "user",
+            "content": (
+                f"{user_query}\n\n"
+                f"[Report date: {date}. Start by calling get_daily_diff with "
+                f"date='{date}' to see what changed today.]"
+            ),
+        },
     ]
 
-    # Lazy-init stores so callers that inject their own stores pay no overhead
-    _sqlite: Optional[SQLiteStore] = sqlite_store
-    _chroma: Optional[ChromaStore] = chroma_store
+    logger.info("ReportAgent start | date=%s | max_iter=%d", date, MAX_AGENT_ITERATIONS)
 
-    logger.info("ReportAgent starting | date=%s | max_iter=%d", target_date, max_iterations)
-
-    for iteration in range(1, max_iterations + 1):
-        logger.debug("ReAct iteration %d / %d", iteration, max_iterations)
-
+    for iteration in range(1, MAX_AGENT_ITERATIONS + 1):
         response = client.chat.completions.create(
-            model=model,
+            model=MODEL,
             messages=messages,
             tools=TOOLS,
             tool_choice="auto",
         )
-
         msg = response.choices[0].message
 
-        # ── No more tool calls → agent has enough information, return answer ──
+        # No tool call → the agent has produced its final answer.
         if not msg.tool_calls:
-            logger.info("ReportAgent finished in %d iterations.", iteration)
-            return msg.content or "(Agent returned an empty response.)"
+            logger.info("ReportAgent finished in %d iteration(s).", iteration)
+            return msg.content or "(Agent returned an empty report.)"
 
-        # ── Append the assistant turn (with tool_calls) to history ──
-        messages.append(msg)  # type: ignore[arg-type]
+        # Record the assistant turn (carries the tool_calls) before answering them.
+        messages.append(msg)
 
-        # ── Execute each requested tool call and feed results back ──
+        # Execute every requested tool call and feed the result back.
         for tc in msg.tool_calls:
-            fn_name = tc.function.name
+            name = tc.function.name
             try:
-                fn_args: Dict[str, Any] = json.loads(tc.function.arguments)
+                args: Dict[str, Any] = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError as exc:
-                logger.warning("Could not parse tool args for %r: %s", fn_name, exc)
-                fn_args = {}
+                logger.warning("Bad tool arguments for %s: %s", name, exc)
+                args = {}
 
-            logger.debug("Tool call: %s(%s)", fn_name, fn_args)
+            # Required: log the called tool's name and arguments each iteration.
+            logger.info("[ReAct iter %d/%d] tool=%s args=%s", iteration, MAX_AGENT_ITERATIONS, name, args)
 
-            try:
-                result = dispatch_tool(
-                    fn_name,
-                    fn_args,
-                    sqlite_store=_sqlite,
-                    chroma_store=_chroma,
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.error("Tool %r raised: %s", fn_name, exc)
-                result = {"error": str(exc), "tool": fn_name}
+            result = dispatch_tool(name, args, sqlite_store, chroma_store)
 
             messages.append(
                 {
@@ -221,106 +196,79 @@ def run_report_agent(
                 }
             )
 
-    # ── Safety net: max iterations exceeded ──
-    logger.warning("ReportAgent hit max_iterations=%d without finishing.", max_iterations)
-    return (
-        f"⚠️ Report incomplete — agent reached the {max_iterations}-iteration limit "
-        f"without producing a final answer. Please review the tool call history or "
-        f"increase MAX_AGENT_ITERATIONS in config.py."
+    # Max iterations reached → force a final text report from what we have.
+    logger.warning("ReportAgent hit MAX_AGENT_ITERATIONS=%d without finishing.", MAX_AGENT_ITERATIONS)
+    return _finalize_partial(client, messages)
+
+
+def _finalize_partial(client: "openai.OpenAI", messages: List[Dict[str, Any]]) -> str:
+    """Force one tool-free completion to salvage a partial report, then caveat it."""
+    caveat = (
+        "\n\n---\n"
+        f"> ⚠️ **Caveat:** the agent reached the {MAX_AGENT_ITERATIONS}-iteration "
+        "limit, so this report is **incomplete** and may be missing data. "
+        "Increase `MAX_AGENT_ITERATIONS` in config.py or narrow the query."
     )
 
+    partial = ""
+    try:
+        final = client.chat.completions.create(
+            model=MODEL,
+            messages=messages
+            + [
+                {
+                    "role": "user",
+                    "content": (
+                        "Stop calling tools. Using ONLY the information already gathered "
+                        "above, write the best report you can now, in the required format. "
+                        "Cite [source_id] for every claim."
+                    ),
+                }
+            ],
+            tool_choice="none",
+        )
+        partial = final.choices[0].message.content or ""
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to finalize partial report: %s", exc)
 
-# ---------------------------------------------------------------------------
-# Class wrapper (for import compatibility with main.py and test_agent.py)
-# ---------------------------------------------------------------------------
+    if not partial.strip():
+        partial = "_(No report could be generated within the iteration limit.)_"
 
-
-class ReportAgent:
-    """Thin wrapper around :func:`run_report_agent` that keeps a shared store pair.
-
-    Usage::
-
-        agent = ReportAgent()
-        report = agent.run("Generate today's status report.")
-    """
-
-    def __init__(
-        self,
-        *,
-        db_path: str = DB_PATH,
-        chroma_path: str = CHROMA_PATH,
-        model: str = OPENAI_MODEL,
-        max_iterations: int = MAX_AGENT_ITERATIONS,
-    ) -> None:
-        self._db_path = db_path
-        self._chroma_path = chroma_path
-        self._model = model
-        self._max_iterations = max_iterations
-
-    def run(
-        self,
-        user_query: str,
-        *,
-        report_date: Optional[str] = None,
-    ) -> str:
-        """Generate a report for the given query and date.
-
-        Parameters
-        ----------
-        user_query:
-            Natural-language question or instruction.
-        report_date:
-            ISO date to scope the diff (defaults to today).
-
-        Returns
-        -------
-        str
-            The Markdown report string.
-        """
-        with SQLiteStore(db_path=self._db_path) as sqlite_store:
-            chroma_store = ChromaStore(path=self._chroma_path)
-            return run_report_agent(
-                user_query,
-                report_date=report_date,
-                max_iterations=self._max_iterations,
-                sqlite_store=sqlite_store,
-                chroma_store=chroma_store,
-                model=self._model,
-            )
-
-    # ------------------------------------------------------------------
-    # CLI entry-point
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def from_cli(cls) -> "ReportAgent":
-        """Construct a ReportAgent from environment / config (for run_agent.sh)."""
-        from config import validate_config  # noqa: PLC0415
-        validate_config()
-        return cls()
+    return partial + caveat
 
 
 # ---------------------------------------------------------------------------
 # CLI — python src/agents/report_agent.py --date 2025-05-21
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def _main() -> None:
     import argparse
-    import sys
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    from config import validate_config
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
     parser = argparse.ArgumentParser(description="Run the Report Agent for a given date.")
-    parser.add_argument("--date", default=date.today().isoformat(), help="ISO date (YYYY-MM-DD)")
-    parser.add_argument("--query", default="Generate the full project status report.", help="User query")
-    parser.add_argument("--model", default=OPENAI_MODEL, help="OpenAI model")
-    parser.add_argument("--max-iter", type=int, default=MAX_AGENT_ITERATIONS, help="Max ReAct iterations")
+    parser.add_argument("--date", default=_date.today().isoformat(), help="ISO date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--query",
+        default="Generate the full project status report for today.",
+        help="User query / instruction for the agent.",
+    )
     args = parser.parse_args()
 
-    agent = ReportAgent(model=args.model, max_iterations=args.max_iter)
-    try:
-        report = agent.run(args.query, report_date=args.date)
-        print(report)
-    except Exception as e:
-        logger.error("Agent failed: %s", e)
-        sys.exit(1)
+    validate_config()  # fail fast if OPENAI_API_KEY is missing
+
+    with SQLiteStore() as sqlite_store:
+        chroma_store = ChromaStore(path=CHROMA_PATH)
+        report = run_report_agent(args.query, args.date, sqlite_store, chroma_store)
+
+    # The report goes to stdout so `... > output/report.md` works; logs go to stderr.
+    print(report)
+
+
+if __name__ == "__main__":
+    _main()
