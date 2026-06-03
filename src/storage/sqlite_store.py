@@ -38,6 +38,16 @@ class SQLiteStore:
             return json.dumps(value)
         return value
 
+    def run_query(self, sql: str, params: Iterable[Any] = ()) -> List[Dict[str, Any]]:
+        """Run a read-only SELECT and return rows as plain dicts.
+
+        Used by read-side consumers (e.g. the Concern Engine) that need ad-hoc
+        SQL against the entities / snapshots / backlinks tables.
+        """
+        connection = self._ensure_connection()
+        cursor = connection.execute(sql, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
     def upsert_entity(self, entity: Dict[str, Any]) -> None:
         connection = self._ensure_connection()
         connection.execute(
