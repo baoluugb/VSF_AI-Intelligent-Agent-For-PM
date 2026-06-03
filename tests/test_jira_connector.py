@@ -92,3 +92,13 @@ def test_done_status_entities_are_preserved() -> None:
     items = connector.load()
 
     assert any(item.get("status") == "Done" for item in items)
+
+
+def test_source_is_normalized_to_jira_type() -> None:
+    """The payload declares "source": "Apache", but normalized docs must use the
+    canonical "jira" discriminator so downstream routing/extraction works."""
+    connector = JiraConnector(str(_get_fixture_path()))
+    items = connector.load()
+
+    assert items
+    assert all(item["source"] == "jira" for item in items)

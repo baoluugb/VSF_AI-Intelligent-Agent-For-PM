@@ -15,13 +15,12 @@ class JiraConnector:
         if not isinstance(issues, list):
             raise ValueError("Invalid Jira payload: 'issues' must be a list.")
 
-        source = payload.get("source", "jira")
         normalized: List[Dict[str, Any]] = []
         for issue in issues:
-            normalized.append(self._normalize_issue(issue, source))
+            normalized.append(self._normalize_issue(issue))
         return normalized
 
-    def _normalize_issue(self, issue: Dict[str, Any], source: str) -> Dict[str, Any]:
+    def _normalize_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
         fields = issue.get("fields", {}) or {}
         issuetype = fields.get("issuetype", {}) or {}
         status = fields.get("status", {}) or {}
@@ -39,7 +38,9 @@ class JiraConnector:
             labels = []
 
         return {
-            "source": source,
+            # Canonical type discriminator used for routing — NOT the payload's
+            # dataset origin (the synthetic file declares "source": "Apache").
+            "source": "jira",
             "source_id": issue.get("key"),
             "title": fields.get("summary"),
             "status": status.get("name"),
