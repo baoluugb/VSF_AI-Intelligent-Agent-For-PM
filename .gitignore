@@ -1,1 +1,40 @@
+# ---- Secrets / environment ----
 .env
+.env.*
+!.env.example
+
+# ---- Python bytecode & caches ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---- Test / type / lint caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Generated data stores (rebuilt by the ingestion pipeline) ----
+# Source synthetic data under data/{jira,confluence,meeting_notes}/ stays tracked.
+data/vault.db
+data/chroma/
+*.db
+*.sqlite3
+
+# ---- Build / packaging ----
+build/
+dist/
+*.egg-info/
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+.idea/
