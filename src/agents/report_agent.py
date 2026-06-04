@@ -25,10 +25,14 @@ for _p in (_ROOT_DIR, _SRC_DIR):
 
 import json
 import logging
+import time
 from datetime import date as _date
 from typing import Any, Dict, List
 
 import openai
+
+# HTTP statuses worth retrying (rate limits, transient upstream/proxy errors).
+_RETRYABLE_STATUS = {403, 408, 409, 425, 429, 500, 502, 503, 504}
 
 from config import (
     CHROMA_PATH,
@@ -110,6 +114,34 @@ def _make_client() -> "openai.OpenAI":
     return openai.OpenAI(**client_kwargs)
 
 
+def _create_with_retry(client: "openai.OpenAI", *, max_attempts: int = 4, **kwargs: Any):
+    """Call chat.completions.create, retrying transient errors with backoff.
+
+    The ckey.vn proxy occasionally returns a transient ``403`` ("upstream rejected"),
+    plus the usual ``429``/``5xx`` — these are retried; other errors propagate.
+    """
+    delay = 2.0
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except (openai.APIConnectionError, openai.APITimeoutError) as exc:
+            last_exc = exc
+        except openai.APIStatusError as exc:
+            if exc.status_code not in _RETRYABLE_STATUS:
+                raise
+            last_exc = exc
+        if attempt < max_attempts:
+            logger.warning(
+                "LLM call failed (attempt %d/%d): %s — retrying in %.1fs",
+                attempt, max_attempts, last_exc, delay,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 20.0)
+    assert last_exc is not None
+    raise last_exc
+
+
 # ---------------------------------------------------------------------------
 # ReAct loop
 # ---------------------------------------------------------------------------
@@ -158,7 +190,8 @@ def run_report_agent(
     logger.info("ReportAgent start | date=%s | max_iter=%d", date, MAX_AGENT_ITERATIONS)
 
     for iteration in range(1, MAX_AGENT_ITERATIONS + 1):
-        response = client.chat.completions.create(
+        response = _create_with_retry(
+            client,
             model=MODEL,
             messages=messages,
             tools=TOOLS,

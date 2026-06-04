@@ -147,9 +147,15 @@ class SQLiteStore:
             )
         return len(values)
 
-    def save_snapshot(self, task_id: str, data: Dict[str, Any], diff: Dict[str, Any] | None) -> None:
+    def save_snapshot(
+        self,
+        task_id: str,
+        data: Dict[str, Any],
+        diff: Dict[str, Any] | None,
+        snapshot_date: Optional[str] = None,
+    ) -> None:
         connection = self._ensure_connection()
-        snapshot_date = date.today().isoformat()
+        snapshot_date = snapshot_date or date.today().isoformat()
         data_json = json.dumps(data)
         diff_json = json.dumps(diff) if diff is not None else None
         connection.execute(
