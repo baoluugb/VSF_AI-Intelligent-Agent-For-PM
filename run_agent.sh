@@ -51,8 +51,12 @@ echo -e "${GREEN}╚════════════════════
 
 REPORT_SIZE=$(wc -c < output/report.md 2>/dev/null || echo 0)
 CONCERN_COUNT=$(python -c "import json;print(len(json.load(open('output/concerns.json'))))" 2>/dev/null || echo "?")
+DOCX_SIZE=$(wc -c < output/report.docx 2>/dev/null || echo 0)
+XLSX_SIZE=$(wc -c < output/concerns.xlsx 2>/dev/null || echo 0)
 echo "  output/report.md     — ${REPORT_SIZE} bytes"
+echo "  output/report.docx   — ${DOCX_SIZE} bytes"
 echo "  output/concerns.json — ${CONCERN_COUNT} concern(s)"
+echo "  output/concerns.xlsx — ${XLSX_SIZE} bytes"
 echo ""
 echo "  Quick verification:"
 

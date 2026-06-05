@@ -45,6 +45,7 @@ from ingestion.run_pipeline import (
 )
 from storage.chroma_store import ChromaStore
 from storage.sqlite_store import SQLiteStore
+from exporters import export_report_to_docx, export_concerns_to_excel
 
 logger = logging.getLogger(__name__)
 
@@ -235,12 +236,32 @@ def run(
         fh.write(report)
     logger.info("Wrote report -> %s", report_path)
 
+    # 5. Export report to Word (.docx) & concerns to Excel (.xlsx) -----------
+    report_docx_path = os.path.join(output_dir, "report.docx")
+    concerns_xlsx_path = os.path.join(output_dir, "concerns.xlsx")
+
+    try:
+        logger.info("Exporting report to Word -> %s", report_docx_path)
+        export_report_to_docx(report_path, report_docx_path)
+    except Exception as exc:
+        logger.error("Failed to export Word document: %s", exc)
+        report_docx_path = None
+
+    try:
+        logger.info("Exporting concerns to Excel -> %s", concerns_xlsx_path)
+        export_concerns_to_excel(concerns_path, concerns_xlsx_path)
+    except Exception as exc:
+        logger.error("Failed to export Excel spreadsheet: %s", exc)
+        concerns_xlsx_path = None
+
     return {
         "date": date_str,
         "concerns": len(concerns),
         "seeded_changes": seeded,
         "report_path": report_path,
         "concerns_path": concerns_path,
+        "report_docx_path": report_docx_path,
+        "concerns_xlsx_path": concerns_xlsx_path,
     }
 
 
@@ -270,6 +291,10 @@ def main() -> None:
     print(f"  concerns        : {stats['concerns']}  -> {stats['concerns_path']}")
     print(f"  seeded changes  : {stats['seeded_changes']}")
     print(f"  report          : {stats['report_path']}")
+    if stats.get("report_docx_path"):
+        print(f"  report (word)   : {stats['report_docx_path']}")
+    if stats.get("concerns_xlsx_path"):
+        print(f"  concerns (excel): {stats['concerns_xlsx_path']}")
 
 
 if __name__ == "__main__":
