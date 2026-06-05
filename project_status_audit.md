@@ -2,7 +2,7 @@
 
 Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md) (v3.0).
 
-**Audit date:** 2026-06-04 · **Branch:** `main` · **HEAD:** `a5e9439` · **Working tree:** clean
+**Audit date:** 2026-06-05 · **Branch:** `main` · **HEAD:** `2ce667d` · **Working tree:** clean
 
 ---
 
@@ -50,7 +50,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | 1.3 | **Python repo structure** (src/, data/, tests/)              | ✅ Done | Layout present with `pyproject.toml`; `.gitignore` added                                                                                |
 | 1.3 | **Linter config** (flake8 + black)                           | ✅ Done | `.flake8` + `[tool.black]` in `pyproject.toml` (line-length 88)                                                                         |
 | 1.3 | **config.py with thresholds**                                | ✅ Done | [config.py](config.py) — 4 thresholds + `MAX_AGENT_ITERATIONS`, OpenAI settings (key/base_url/model), chunk params, `validate_config()` |
-| 1.3 | **Basic unit test** (CI green)                               | ✅ Done | **77 pass / 1 fails** on a stale assertion (see Test Suite)                                                                             |
+| 1.3 | **Basic unit test** (CI green)                               | ✅ Done | **77 pass / 1 fail** on a stale assertion (see Test Suite)                                                                              |
 
 ---
 
@@ -62,7 +62,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | 2.1 | **Confluence connector**                 | ✅ Done | [confluence_connector.py](src/ingestion/confluence_connector.py) — folder/JSON loader, validation, normalization (181 lines)                                                                              |
 | 2.1 | **Meeting Notes connector**              | ✅ Done | [meeting_notes_connector.py](src/ingestion/meeting_notes_connector.py) — JSON + plain text, issue-key extraction (343 lines)                                                                              |
 | 2.2 | **Route 1 → ChromaDB** (chunking)        | ✅ Done | [chroma_store.py](src/storage/chroma_store.py) — `add_confluence_chunks()`, `add_meeting_chunks()`, `add_jira_description()`                                                                              |
-| 2.2 | **Route 2 → SQLite** (entity upsert)     | ✅ Done | [sqlite_store.py](src/storage/sqlite_store.py) — `bulk_upsert`, `save_snapshot`, `query_entity`, `insert_backlinks`, `update_sync_log`, `run_query`, `insert_audit_log` (233 lines)                       |
+| 2.2 | **Route 2 → SQLite** (entity upsert)     | ✅ Done | [sqlite_store.py](src/storage/sqlite_store.py) — `bulk_upsert`, `save_snapshot`, `query_entity`, `insert_backlinks`, `update_sync_log`, `run_query`, `insert_audit_log` (239 lines)                       |
 | 2.2 | **Entity extraction** (regex + rules)    | ✅ Done | [entity_extractor.py](src/ingestion/entity_extractor.py) — entities + backlinks across 3 sources (91 lines)                                                                                               |
 | 2.3 | **Day-over-day diff**                    | ✅ Done | [sqlite_store.py](src/storage/sqlite_store.py) — `get_daily_diff()` with snapshot self-join on `DATE(?, '-1 day')`                                                                                        |
 | —   | **Ingestion orchestrator / entry point** | ✅ Done | [run_pipeline.py](src/ingestion/run_pipeline.py) (231 lines) — `init_db` → connectors → `EntityExtractor` → SQLite + ChromaDB, with field bridges + CLI. **Verified at scale** (1222 docs). 13 e2e tests. |
@@ -74,7 +74,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | #   | Task                                                              | Status        | Evidence                                                                                                                                                                                            |
 | --- | ----------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 3.1 | **Tool definitions** (query_chroma, query_sqlite, get_daily_diff) | ✅ Done       | [tools.py](src/agents/tools.py) (292 lines) — 3 schemas + `dispatch_tool` returning `{"result","source_ids"}`; unknown → `{"error": "Unknown tool"}`; `epic_filter` matched in Python               |
-| 3.2 | **ReAct loop** (OpenAI SDK)                                       | ✅ Done       | [report_agent.py](src/agents/report_agent.py) (274 lines) — `run_report_agent(user_query, date, sqlite_store, chroma_store)`, `tool_choice="auto"`, ≤ `MAX_AGENT_ITERATIONS`, `_finalize_partial()` |
+| 3.2 | **ReAct loop** (OpenAI SDK)                                       | ✅ Done       | [report_agent.py](src/agents/report_agent.py) (307 lines) — `run_report_agent(user_query, date, sqlite_store, chroma_store)`, `tool_choice="auto"`, ≤ `MAX_AGENT_ITERATIONS`, `_finalize_partial()` |
 | 3.3 | **Citation enforcement** (system prompt)                          | ✅ Done       | `SYSTEM_PROMPT` mandates `[source_id]`, forbids unsourced claims, 4 sections: **Overview / Changes Today / Concerns / Next Actions**                                                                |
 | —   | **Model config + CLI**                                            | ✅ Done       | `MODEL = OPENAI_MODEL` (`.env`); honours `OPENAI_API_KEY`/`OPENAI_BASE_URL`; `__main__` CLI (`--date`, `--query`)                                                                                   |
 | —   | **Live LLM connectivity**                                         | ✅ Verified   | Smoke test: `chat.completions.create(model="gpt-5.5")` against `https://ckey.vn/v1` returned successfully                                                                                           |
@@ -105,7 +105,7 @@ All rules live in [concern_engine.py](src/agents/concern_engine.py) (354 lines).
 | 5.1 | **MCP Server** (FastAPI + 3 endpoints) | ❌ Not started | No `mcp/` package                                                                                                   |
 | 5.2 | **Input guardrail** (sanitize_input)   | ✅ Done        | [sanitizer.py](src/guardrail/sanitizer.py) — `InputSanitizer`: injection patterns → `audit_log` + `[FILTERED]`, truncate 2000, strip HTML |
 | 5.2 | **Output guardrail** (sanitize_output) | ✅ Done        | `OutputSanitizer` — redacts `sk-…` keys, `Bearer …` tokens, PEM `PRIVATE KEY` blocks → `[REDACTED]`                |
-| 5.2 | **Audit log** (SQLite)                 | ✅ Done        | `SQLiteStore.insert_audit_log()` writes `timestamp \| source_id \| field \| flag_type \| snippet`; driven by `InputSanitizer` |
+| 5.2 | **Audit log** (SQLite)                 | ✅ Done        | `SQLiteStore.insert_audit_log()` writes `timestamp | source_id | field | flag_type | snippet`; driven by `InputSanitizer` |
 | 5.3 | **End-to-end test** (curl)             | ❌ Not started | No API to test yet (MCP server pending)                                                                             |
 
 ---
