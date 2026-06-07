@@ -154,6 +154,62 @@ def test_blocker_rule(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Stalled tiering (needs-review vs chronic backlog)
+# ---------------------------------------------------------------------------
+
+def test_stalled_severity_tiers():
+    """needs-review → high (4); chronic backlog → low (2); plain → medium (3)."""
+    sev_review, _ = ConcernEngine.score_severity(
+        "stalled_task", days_stalled=120, has_review_label=True, chronic=False
+    )
+    sev_chronic, _ = ConcernEngine.score_severity(
+        "stalled_task", days_stalled=120, has_review_label=False, chronic=True
+    )
+    sev_plain, _ = ConcernEngine.score_severity(
+        "stalled_task", days_stalled=5, has_review_label=False, chronic=False
+    )
+    assert (sev_review, sev_chronic, sev_plain) == (4, 2, 3)
+
+
+def test_stalled_anomalies_flagged_actionable_not_chronic(tmp_path):
+    """The planted stalled anomalies carry `needs-review`, so the rule must mark
+    them actionable (severity 4, chronic=False), not chronic backlog."""
+    stalled = _anomalies_of("stalled", status="In Progress")[:3]
+    assert len(stalled) == 3
+
+    db, _ = _populate(tmp_path, stalled)
+    with SQLiteStore(db_path=db) as store:
+        concerns = ConcernEngine(as_of=AS_OF)._rule_stalled(store)
+
+    by_id = {c["task_id"]: c for c in concerns}
+    for it in stalled:
+        c = by_id[it["key"]]
+        assert c["details"]["needs_review"] is True
+        assert c["details"]["chronic"] is False
+        assert c["severity"] == 4
+
+
+def test_chronic_stalled_is_low_severity(tmp_path):
+    """A long-idle In-Progress task without `needs-review` is kept but
+    de-prioritised (chronic=True, severity 2) so it doesn't crowd the top block."""
+    normals_ip = [it for it in NORMALS if _status(it) == "In Progress"]
+    assert normals_ip, "need at least one normal In-Progress task"
+    ent = _to_entity(normals_ip[0])
+    ent["labels"] = []  # ensure no needs-review label
+    ent["updated_at"] = "2024-01-01T00:00:00.000+0000"  # very stale vs AS_OF
+
+    db = str(tmp_path / "chronic.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert([ent])
+        concerns = ConcernEngine(as_of=AS_OF)._rule_stalled(store)
+
+    c = {c["task_id"]: c for c in concerns}[normals_ip[0]["key"]]
+    assert c["details"]["chronic"] is True
+    assert c["severity"] == 2
+
+
+# ---------------------------------------------------------------------------
 # Precision on mixed data (normal + anomaly)
 # ---------------------------------------------------------------------------
 

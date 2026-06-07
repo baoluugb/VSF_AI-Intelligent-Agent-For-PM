@@ -28,15 +28,18 @@ for _p in (_ROOT_DIR, _SRC_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from config import (
     BLOCKER_OPEN_DAYS,
     CHROMA_PATH,
+    CHRONIC_STALLED_DAYS,
     CONFLICT_WINDOW_H,
     DB_PATH,
     DEADLINE_RISK_DAYS,
+    REPORT_LANG,
     STALLED_DAYS,
 )
 
@@ -64,6 +67,7 @@ class ConcernEngine:
         deadline_risk_days: int = DEADLINE_RISK_DAYS,
         blocker_open_days: int = BLOCKER_OPEN_DAYS,
         conflict_window_h: int = CONFLICT_WINDOW_H,
+        chronic_stalled_days: int = CHRONIC_STALLED_DAYS,
     ) -> None:
         """Parameters
         ----------
@@ -79,6 +83,7 @@ class ConcernEngine:
         self.deadline_risk_days = deadline_risk_days
         self.blocker_open_days = blocker_open_days
         self.conflict_window_h = conflict_window_h
+        self.chronic_stalled_days = chronic_stalled_days
 
     # ------------------------------------------------------------------
     # Orchestration
@@ -105,9 +110,16 @@ class ConcernEngine:
     # ------------------------------------------------------------------
 
     def _rule_stalled(self, db: "SQLiteStore") -> List[Dict[str, Any]]:
-        """In-progress tasks not updated for more than ``stalled_days`` days."""
+        """In-progress tasks not updated for more than ``stalled_days`` days.
+
+        Tiered so the report can prioritise correctly:
+          * ``needs-review`` label  → actionable, high severity;
+          * idle > ``chronic_stalled_days`` with no label → "chronic" backlog,
+            kept but low severity (so 100-day zombies don't crowd the top);
+          * otherwise → medium severity.
+        """
         sql = """
-            SELECT task_id, assignee, status, updated_at,
+            SELECT task_id, assignee, status, updated_at, labels,
                    julianday(?) - julianday(substr(updated_at, 1, 10)) AS days_stalled
             FROM entities
             WHERE status = 'In Progress'
@@ -121,7 +133,11 @@ class ConcernEngine:
             if r["days_stalled"] is None:
                 continue
             days = int(round(r["days_stalled"]))
-            severity, explanation = self.score_severity("stalled_task", days_stalled=days)
+            has_review = self._has_label(r["labels"], "needs-review")
+            chronic = (not has_review) and days > self.chronic_stalled_days
+            severity, explanation = self.score_severity(
+                "stalled_task", days_stalled=days, has_review_label=has_review, chronic=chronic
+            )
             concerns.append({
                 "type": "stalled_task",
                 "task_id": r["task_id"],
@@ -129,9 +145,33 @@ class ConcernEngine:
                 "explanation": explanation,
                 "assignee": r["assignee"],
                 "source_ids": [r["task_id"]],
-                "details": {"days_stalled": days, "status": r["status"]},
+                "details": {
+                    "days_stalled": days,
+                    "status": r["status"],
+                    "needs_review": has_review,
+                    "chronic": chronic,
+                },
             })
         return concerns
+
+    @staticmethod
+    def _has_label(labels_raw: Any, target: str) -> bool:
+        """True if ``target`` (case-insensitive) is in a JSON-encoded label list.
+
+        Defensive: ``labels`` is stored as a JSON string but may be NULL or
+        malformed; never raise from a label check.
+        """
+        if not labels_raw:
+            return False
+        labels = labels_raw
+        if isinstance(labels_raw, str):
+            try:
+                labels = json.loads(labels_raw)
+            except (TypeError, ValueError):
+                return False
+        if not isinstance(labels, (list, tuple)):
+            return False
+        return any(str(x).lower() == target.lower() for x in labels)
 
     # ------------------------------------------------------------------
     # Rule 2 — Deadline risk
@@ -294,29 +334,64 @@ class ConcernEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def score_severity(concern_type: str, **kwargs: Any) -> Tuple[int, str]:
-        """Return ``(severity 1-5, explanation)`` for a concern type."""
+    def score_severity(concern_type: str, *, lang: Optional[str] = None, **kwargs: Any) -> Tuple[int, str]:
+        """Return ``(severity 1-5, explanation)`` for a concern type.
+
+        ``lang`` ("vi"/"en", default :data:`config.REPORT_LANG`) selects the
+        explanation language so the report and concern objects stay in one
+        language.
+        """
+        vi = (lang or REPORT_LANG or "vi").lower().startswith("vi")
+
         if concern_type == "stalled_task":
             days = kwargs.get("days_stalled", 0)
-            severity = 4 if days > 7 else 3
-            return severity, f"Task chưa có update trong {days} ngày."
+            has_review = kwargs.get("has_review_label", False)
+            chronic = kwargs.get("chronic", False)
+            if has_review:
+                severity = 4
+                exp = (f"Chưa update {days} ngày và đang chờ review (needs-review) — cần xử lý."
+                       if vi else
+                       f"No update in {days} days and flagged needs-review — needs attention.")
+            elif chronic:
+                severity = 2
+                exp = (f"Tồn đọng kinh niên: chưa update {days} ngày (không có cờ review)."
+                       if vi else
+                       f"Chronic backlog: no update in {days} days (no review flag).")
+            else:
+                severity = 3
+                exp = (f"Task chưa có update trong {days} ngày."
+                       if vi else
+                       f"No update in {days} days.")
+            return severity, exp
 
         if concern_type == "deadline_risk":
             days = kwargs.get("days_remaining", 0)
             status = kwargs.get("status", "")
             severity = 5 if days <= 1 else 4
             if days < 0:
-                return severity, f"Deadline đã quá hạn {abs(days)} ngày, status vẫn '{status}'."
-            return severity, f"Deadline còn {days} ngày, status vẫn '{status}'."
+                exp = (f"Deadline đã quá hạn {abs(days)} ngày, status vẫn '{status}'."
+                       if vi else
+                       f"Deadline overdue by {abs(days)} day(s), still '{status}'.")
+            else:
+                exp = (f"Deadline còn {days} ngày, status vẫn '{status}'."
+                       if vi else
+                       f"Deadline in {days} day(s), still '{status}'.")
+            return severity, exp
 
         if concern_type == "unresolved_blocker":
             dependent_count = kwargs.get("dependent_count", 0)
             days_open = kwargs.get("days_open", 0)
             severity = min(3 + dependent_count, 5)
-            return severity, f"Blocker mở {days_open} ngày, ảnh hưởng {dependent_count} task."
+            exp = (f"Blocker mở {days_open} ngày, ảnh hưởng {dependent_count} task."
+                   if vi else
+                   f"Blocker open {days_open} day(s), affecting {dependent_count} task(s).")
+            return severity, exp
 
         if concern_type == "cross_source_conflict":
-            return 5, "Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending/review."
+            exp = ("Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending/review."
+                   if vi else
+                   "Marked Done in Jira but other docs still record it as pending/review.")
+            return 5, exp
 
         return 1, f"Unknown concern type: {concern_type}"
 

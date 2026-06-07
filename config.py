@@ -21,6 +21,18 @@ BLOCKER_OPEN_DAYS = 2
 CONFLICT_WINDOW_H = 48
 MAX_AGENT_ITERATIONS = 5
 
+# A stalled task with no `needs-review` label that has been idle longer than this
+# is treated as "chronic backlog": still reported, but de-prioritised (low
+# severity) so it doesn't crowd out the items a PM must act on today.
+CHRONIC_STALLED_DAYS = 30
+
+# Report rendering ----------------------------------------------------------
+# Language of the generated report + concern explanations: "vi" or "en".
+REPORT_LANG = os.getenv("REPORT_LANG", "vi")
+# Optional Jira base URL (e.g. https://acme.atlassian.net). When set, Jira issue
+# citations like [FLINK-40] become clickable links. Empty → links disabled.
+JIRA_BASE_URL = os.getenv("JIRA_BASE_URL", "")
+
 CHUNK_SIZE_CONFLUENCE = 600
 CHUNK_OVERLAP_CONFLUENCE = 80
 CHUNK_SIZE_MEETING = 300

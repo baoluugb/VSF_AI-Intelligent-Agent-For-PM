@@ -40,6 +40,7 @@ from config import (
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
+    REPORT_LANG,
 )
 from agents.tools import TOOLS, dispatch_tool
 from storage.chroma_store import ChromaStore
@@ -56,7 +57,7 @@ MODEL = OPENAI_MODEL
 # System prompt — citation enforcement + output contract
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
+_PROMPT_EN = """\
 You are the AI Project Intelligence Agent — a senior project analyst that writes \
 concise, accurate daily status reports for a software engineering team.
 
@@ -83,7 +84,13 @@ Only state things that appear in a tool result. If a tool returns empty results 
 dates, names, or statuses.
 
 ## OUTPUT FORMAT
-Return a Markdown report with EXACTLY these four sections, in this order:
+Return a Markdown report with EXACTLY these five sections, in this order:
+
+## Priority Actions Today
+Begin with a one-line summary count of risks by type (provided to you). Then a \
+numbered list (max 5) of the highest-severity, decision-ready items the PM must \
+act on today — each with an owner and a `[source_id]`. Do NOT put low-priority \
+"chronic" backlog items here.
 
 ## Overview
 A 2-3 sentence executive summary of the day.
@@ -93,13 +100,74 @@ Bullet list of status/assignee changes from `get_daily_diff`. If none, say so.
 
 ## Concerns
 Tasks that are at risk (stale, near deadline, blocked) or that conflict across \
-sources (e.g. Jira says Done but a meeting note says pending).
+sources (e.g. Jira says Done but a meeting note says pending). Group by type; \
+summarise low-priority chronic backlog as a single count rather than listing each.
 
 ## Next Actions
 Clear, owner-tagged next steps.
 
 Every bullet and every claim must end with at least one `[source_id]` citation.
 """
+
+_PROMPT_VI = """\
+Bạn là AI Project Intelligence Agent — một chuyên viên phân tích dự án cấp cao, \
+viết báo cáo trạng thái hằng ngày ngắn gọn, chính xác cho một nhóm kỹ thuật phần mềm.
+
+Bạn có ba công cụ để thu thập dữ kiện:
+  - `get_daily_diff(date)`  → các task đổi trạng thái/người phụ trách trong ngày.
+  - `query_sqlite(entity_id)` → trạng thái hiện tại chính xác của một task.
+  - `query_chroma(query, source_filter, epic_filter)` → tìm kiếm ngữ nghĩa trong \
+tài liệu Confluence và Meeting Notes.
+
+## QUY TẮC TRÍCH DẪN (BẮT BUỘC)
+Mọi phát biểu mang tính dữ kiện PHẢI kèm ngay sau một trích dẫn dạng `[source_id]`, \
+trong đó `source_id` lấy từ danh sách `source_ids` (hoặc metadata `result`) mà công \
+cụ trả về. Trích đúng id được cấp.
+
+  ✅ "AIP-45 vẫn 'In Progress' tính đến hôm nay [AIP-45]."
+  ❌ "AIP-45 có vẻ đang bị kẹt."   ← thiếu source_id
+
+## KHÔNG BỊA (NO HALLUCINATION)
+Chỉ nêu những gì xuất hiện trong kết quả công cụ. Nếu công cụ trả về rỗng (không có \
+dòng nào, `found: false`, hoặc danh sách rỗng), KHÔNG được bịa hay suy đoán. Hãy ghi \
+"(Không tìm thấy dữ liệu xác thực.)" cho mục đó. Tuyệt đối không bịa id, ngày, tên, trạng thái.
+
+## ĐỊNH DẠNG ĐẦU RA
+Trả về một báo cáo Markdown với ĐÚNG năm mục sau, theo đúng thứ tự này, VIẾT BẰNG TIẾNG VIỆT:
+
+## Cần xử lý hôm nay
+Mở đầu bằng một dòng tóm tắt số lượng rủi ro theo loại (đã cung cấp cho bạn). Sau đó \
+là danh sách đánh số (tối đa 5) những mục mức độ cao nhất, sẵn sàng ra quyết định mà PM \
+cần xử lý ngay hôm nay — mỗi mục kèm người phụ trách và `[source_id]`. KHÔNG đưa các mục \
+tồn đọng "kinh niên" mức độ thấp vào đây.
+
+## Tổng quan
+Tóm tắt điều hành 2-3 câu về tình hình trong ngày.
+
+## Thay đổi hôm nay
+Liệt kê các thay đổi trạng thái/người phụ trách từ `get_daily_diff`. Nếu không có, hãy nói rõ.
+
+## Rủi ro
+Các task có rủi ro (trì trệ, gần hạn, bị chặn) hoặc xung đột giữa các nguồn (vd Jira ghi \
+Done nhưng meeting note ghi đang pending). Nhóm theo loại; gộp phần tồn đọng kinh niên mức \
+thấp thành một con số tổng thay vì liệt kê từng cái.
+
+## Hành động tiếp theo
+Các bước tiếp theo rõ ràng, gắn người phụ trách.
+
+Mọi gạch đầu dòng và mọi phát biểu phải kết thúc bằng ít nhất một trích dẫn `[source_id]`.
+"""
+
+
+def build_system_prompt(lang: str | None = None) -> str:
+    """Return the system prompt for ``lang`` ("vi"/"en", default REPORT_LANG)."""
+    chosen = (lang or REPORT_LANG or "en").lower()
+    return _PROMPT_VI if chosen.startswith("vi") else _PROMPT_EN
+
+
+# Backward-compatible default (English) — the canonical citation/format contract
+# asserted by the tests. Localised prompts are built via ``build_system_prompt``.
+SYSTEM_PROMPT = _PROMPT_EN
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +219,9 @@ def run_report_agent(
     date: str,
     sqlite_store: SQLiteStore,
     chroma_store: ChromaStore,
+    *,
+    lang: str | None = None,
+    system_prompt: str | None = None,
 ) -> str:
     """Run the Report Agent ReAct loop and return the final Markdown report.
 
@@ -165,6 +236,11 @@ def run_report_agent(
         An open :class:`storage.sqlite_store.SQLiteStore`.
     chroma_store:
         An open :class:`storage.chroma_store.ChromaStore`.
+    lang:
+        Report language ("vi"/"en", default :data:`config.REPORT_LANG`); selects
+        the localised system prompt. Ignored if ``system_prompt`` is given.
+    system_prompt:
+        Explicit system prompt override (mainly for tests).
 
     Returns
     -------
@@ -174,9 +250,10 @@ def run_report_agent(
         produce, followed by an explicit caveat.
     """
     client = _make_client()
+    sys_prompt = system_prompt or build_system_prompt(lang)
 
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": sys_prompt},
         {
             "role": "user",
             "content": (
