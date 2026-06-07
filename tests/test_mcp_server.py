@@ -20,6 +20,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# fastapi is an optional dependency; skip this whole module (rather than abort
+# the entire test-suite collection) if it isn't installed in the active env.
+pytest.importorskip("fastapi")
+
 from fastapi.testclient import TestClient
 
 import mcp.server as mcp_server

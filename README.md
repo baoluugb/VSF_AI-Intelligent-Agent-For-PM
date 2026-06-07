@@ -76,29 +76,37 @@ VSF_AI-Intelligent-Agent-For-PM/
 ### Prerequisites
 
 - Python ≥ 3.10
-- [Poetry](https://python-poetry.org/) for dependency management
 - An OpenAI-compatible API key (set in `.env`)
 
 ### 1. Install dependencies
 
+Use a virtualenv or conda env, then install with **pip** (recommended — matches
+how the project is run and developed):
+
 ```bash
-poetry install
+python -m venv .venv && source .venv/bin/activate   # or: conda create -n vsf python=3.11 && conda activate vsf
+pip install -r requirements.txt
 ```
+
+> **Poetry (optional):** a `pyproject.toml` is also provided, so `poetry install`
+> works if you prefer Poetry. In that case prefix the commands below with
+> `poetry run`. With a pip/conda env activated, run them directly (no prefix).
 
 ### 2. Configure environment
 
 Copy the example and fill in your credentials:
 
 ```bash
-cp .env.example .env   # or create .env manually
+cp .env.example .env   # then edit .env with your key
 ```
 
-Minimum required variables:
+Minimum required variables (see [.env.example](.env.example) for the full list):
 
 ```dotenv
 OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://ckey.vn/v1   # or https://api.openai.com/v1
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-4o-mini             # or any chat model your key supports
+# OPENAI_BASE_URL=https://ckey.vn/v1 # optional; omit to use api.openai.com
+MCP_API_KEY=...                      # required only for the MCP server
 ```
 
 ### 3. Run the full demo (one command)
@@ -159,15 +167,16 @@ curl    "http://localhost:8000/concerns?min_sev=3"      -H "X-API-Key: $MCP_API_
 ## Running Tests
 
 ```bash
-poetry run pytest
+pytest          # or: poetry run pytest
 ```
 
-Expected result: **91 passed, 1 failed** (one stale assertion in `test_meeting_notes_connector.py` that expects 4 meetings; the data file has 5).
+Expected result: **92 passed** (the MCP-server tests self-skip if `fastapi`
+isn't installed, rather than failing collection).
 
 To also run the 17 in-file guardrail tests:
 
 ```bash
-poetry run pytest src/guardrail/sanitizer.py
+pytest src/guardrail/sanitizer.py
 ```
 
 ---

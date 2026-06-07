@@ -1,0 +1,24 @@
+# Runtime + test dependencies, pinned to the versions verified in the project's
+# conda env (VSF_prj). Install into any venv/conda env with:
+#
+#   pip install -r requirements.txt
+#
+# This mirrors pyproject.toml for users who don't use Poetry.
+
+# --- Runtime ---
+openai==2.40.0
+chromadb==1.5.9
+langchain-text-splitters==1.1.2
+fastapi==0.136.3
+uvicorn==0.48.0
+python-dotenv==1.2.2
+python-docx==1.2.0
+pandas==3.0.3
+openpyxl==3.1.5
+
+# --- Tests ---
+pytest==9.0.3
+
+# --- Lint/format (optional, unpinned) ---
+black
+flake8

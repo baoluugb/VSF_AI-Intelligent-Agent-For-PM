@@ -92,4 +92,4 @@ def test_load_meeting_notes_json() -> None:
     connector = MeetingNotesConnector("data/meeting_notes")
     notes = connector.load()
 
-    assert len(notes) == 4
+    assert len(notes) == 5
