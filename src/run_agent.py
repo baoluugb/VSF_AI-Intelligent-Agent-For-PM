@@ -35,8 +35,7 @@ from typing import Any, Dict, List
 
 from config import CHROMA_PATH, DB_PATH
 from agents.concern_engine import ConcernEngine
-from agents.report_agent import run_report_agent
-from guardrail.sanitizer import OutputSanitizer
+from agents.report_pipeline import generate_grounded_report
 from ingestion.run_pipeline import (
     DEFAULT_CONFLUENCE_PATH,
     DEFAULT_JIRA_PATH,
@@ -59,7 +58,6 @@ _PRIOR_STATUS = {
     "Closed": "In Review",
 }
 _MAX_SEED_CHANGES = 6
-_MAX_CONCERNS_IN_PROMPT = 16
 
 
 # ---------------------------------------------------------------------------
@@ -113,76 +111,6 @@ def _seed_prior_snapshots(
     return seeded
 
 
-def _select_diverse(concerns: List[Dict[str, Any]], per_type: int, cap: int) -> List[Dict[str, Any]]:
-    """Pick the top ``per_type`` (severity-sorted) of *each* concern type, capped at
-    ``cap`` — so the report covers every anomaly type, not just the most frequent
-    (deadline) one."""
-    by_type: Dict[str, List[Dict[str, Any]]] = {}
-    for c in concerns:  # already severity-sorted
-        by_type.setdefault(c["type"], []).append(c)
-    selected: List[Dict[str, Any]] = []
-    for items in by_type.values():
-        selected.extend(items[:per_type])
-    selected.sort(key=lambda c: c["severity"], reverse=True)
-    return selected[:cap]
-
-
-def _format_concerns_for_prompt(selected: List[Dict[str, Any]], total: int) -> str:
-    lines = [
-        f"- [{c['type']}] {c['task_id']} — severity {c['severity']} — {c['explanation']}"
-        for c in selected
-    ]
-    more = total - len(selected)
-    if more > 0:
-        lines.append(f"- … and {more} more concern(s) (see concerns.json).")
-    return "\n".join(lines) if lines else "- (No concerns detected.)"
-
-
-def _build_user_query(date_str: str, concerns: List[Dict[str, Any]]) -> str:
-    selected = _select_diverse(concerns, per_type=4, cap=_MAX_CONCERNS_IN_PROMPT)
-    concern_block = _format_concerns_for_prompt(selected, len(concerns))
-    return (
-        f"Generate the daily project intelligence report for {date_str}.\n\n"
-        f"The deterministic Concern Engine flagged these risks (severity-sorted; "
-        f"{len(concerns)} total):\n{concern_block}\n\n"
-        "Instructions:\n"
-        "- Ground the **Concerns** section in the items above. For the most severe "
-        "ones, use `query_sqlite` to confirm the current state and `query_chroma` "
-        "(source_filter='meeting_notes' or 'confluence') to add context, citing [source_id].\n"
-        f"- Use `get_daily_diff` with date='{date_str}' for the **Changes Since** section.\n"
-        "- Keep it concise and cite [source_id] for every claim."
-    )
-
-
-def _fallback_report(date_str: str, concerns: List[Dict[str, Any]], error: Exception) -> str:
-    """Deterministic report from the Concern Engine when the LLM is unavailable."""
-    selected = _select_diverse(concerns, per_type=5, cap=20)
-    lines = [
-        "## Overview",
-        f"_LLM narrative unavailable ({type(error).__name__}); this is a deterministic "
-        f"fallback generated directly from the Concern Engine for {date_str}._",
-        "",
-        f"{len(concerns)} concern(s) detected across stalled / deadline / blocker / "
-        "cross-source-conflict rules.",
-        "",
-        "## Changes Since",
-        "_(Requires the LLM agent; see output/concerns.json for the full risk list.)_",
-        "",
-        "## Concerns",
-    ]
-    for c in selected:
-        lines.append(
-            f"- [{c['type']}] {c['task_id']} (severity {c['severity']}): "
-            f"{c['explanation']} [{c['task_id']}]"
-        )
-    lines += [
-        "",
-        "## Next Actions",
-        "- Triage the highest-severity items above; full details in `output/concerns.json`.",
-    ]
-    return "\n".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -222,15 +150,9 @@ def run(
         logger.info("Seeded %d prior-day snapshot transition(s) for the diff.", seeded)
 
         # 4. Grounded Report Agent -> report.md -----------------------------
-        user_query = _build_user_query(date_str, concerns)
         logger.info("Running Report Agent (grounded with %d concerns)...", len(concerns))
-        try:
-            report = run_report_agent(user_query, date_str, store, chroma)
-        except Exception as exc:
-            logger.error("Report Agent failed (%s); writing deterministic fallback report.", exc)
-            report = _fallback_report(date_str, concerns, exc)
+        report = generate_grounded_report(date_str, concerns, store, chroma)
 
-    report = OutputSanitizer().sanitize(report)
     report_path = os.path.join(output_dir, "report.md")
     with open(report_path, "w", encoding="utf-8") as fh:
         fh.write(report)

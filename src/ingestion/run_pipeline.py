@@ -39,6 +39,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from config import CHROMA_PATH, DB_PATH
+from guardrail.sanitizer import InputSanitizer
 from ingestion.confluence_connector import ConfluenceConnector
 from ingestion.entity_extractor import EntityExtractor
 from ingestion.jira_connector import JiraConnector
@@ -93,6 +94,7 @@ def run_pipeline(
     *,
     db_path: str = DB_PATH,
     chroma_path: str = CHROMA_PATH,
+    sanitizer: Optional[InputSanitizer] = None,
 ) -> Dict[str, Any]:
     """Run ingestion across the provided sources and route into both stores.
 
@@ -108,12 +110,23 @@ def run_pipeline(
         SQLite database path (defaults to ``config.DB_PATH``).
     chroma_path:
         ChromaDB persistence path (defaults to ``config.CHROMA_PATH``).
+    sanitizer:
+        Optional :class:`guardrail.sanitizer.InputSanitizer` (Week 5 §5.2).
+        When given, every document's ``text_content`` is screened for
+        prompt-injection patterns *before* it reaches ChromaDB/SQLite —
+        matches are replaced with a filtered placeholder and logged to
+        ``audit_log``. Clean text is passed through untouched (the
+        sanitizer's truncate/HTML-strip side effects are skipped here so
+        long-form Confluence/meeting content keeps chunking normally);
+        ``None`` (the default) preserves the original ingest-everything
+        behaviour used by ``run_agent.sh`` and the test suite.
 
     Returns
     -------
     dict
         Summary stats: ``documents``, ``entities``, ``backlinks``,
-        ``jira_docs``, ``confluence_chunks``, ``meeting_chunks``, ``sources``.
+        ``jira_docs``, ``confluence_chunks``, ``meeting_chunks``, ``sources``,
+        ``flagged_injections``.
     """
     logger.info("Initializing database at %s", db_path)
     init_db(db_path)
@@ -131,6 +144,20 @@ def run_pipeline(
         all_docs.extend(MeetingNotesConnector(notes_path).load())
 
     logger.info("Loaded %d normalized document(s).", len(all_docs))
+
+    # 1b. Input guardrail — screen for prompt-injection before indexing -----
+    flagged_injections = 0
+    if sanitizer is not None:
+        for doc in all_docs:
+            text = doc.get("text_content") or ""
+            if text and sanitizer.sanitize(text, "text_content", doc.get("source_id", "unknown")) == "[FILTERED]":
+                doc["text_content"] = "[FILTERED: potential injection in text_content]"
+                flagged_injections += 1
+        if flagged_injections:
+            logger.warning(
+                "Input guardrail flagged %d document(s) for prompt-injection patterns "
+                "(see audit_log).", flagged_injections,
+            )
 
     # 2. Extract entities + backlinks ---------------------------------------
     entities, backlinks = EntityExtractor().extract(all_docs)
@@ -181,6 +208,7 @@ def run_pipeline(
         "confluence_chunks": confluence_chunks,
         "meeting_chunks": meeting_chunks,
         "sources": sources,
+        "flagged_injections": flagged_injections,
     }
 
 
