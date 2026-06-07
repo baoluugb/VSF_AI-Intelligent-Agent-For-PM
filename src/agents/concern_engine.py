@@ -30,6 +30,7 @@ for _p in (_ROOT_DIR, _SRC_DIR):
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from config import (
@@ -54,6 +55,10 @@ logger = logging.getLogger(__name__)
 _CONFLICT_KEYWORDS = ("pending", "chờ", "review", "chưa")
 
 _MEETING_COLLECTION = "meeting_chunks"
+
+# A task is "completed" in Jira under any of these statuses — not just "Done".
+# Closed/Resolved count too, or the cross-source rule misses ~2/3 of cases.
+_DONE_STATUSES = ("Done", "Closed", "Resolved")
 
 
 class ConcernEngine:
@@ -173,6 +178,19 @@ class ConcernEngine:
             return False
         return any(str(x).lower() == target.lower() for x in labels)
 
+    @staticmethod
+    def _mentions_key(document: str, task_id: str) -> bool:
+        """Exact task-key match (word-boundary, case-insensitive).
+
+        Critically, the trailing ``(?![0-9])`` stops a short key from matching a
+        longer one: ``AIP-5`` must NOT match a chunk that only contains
+        ``AIP-53`` — the bug that produced the lone false-positive cross-source flag.
+        """
+        if not document or not task_id:
+            return False
+        pattern = r"(?<![A-Za-z0-9])" + re.escape(task_id) + r"(?![0-9])"
+        return re.search(pattern, document, re.IGNORECASE) is not None
+
     # ------------------------------------------------------------------
     # Rule 2 — Deadline risk
     # ------------------------------------------------------------------
@@ -270,25 +288,28 @@ class ConcernEngine:
         db: "SQLiteStore",
         chroma: "ChromaStore",
     ) -> List[Dict[str, Any]]:
-        """Jira says 'Done' recently, but a meeting note still says pending/review.
+        """Jira says a task is completed recently, but a meeting note still says
+        pending/review.
 
-        Step 1: SQL — recently-Done tasks (within ``conflict_window_h`` hours).
+        Step 1: SQL — recently-completed tasks (``Done``/``Closed``/``Resolved``
+                within ``conflict_window_h`` hours).
         Step 2: For each, search meeting-note chunks for the task id.
-        Step 3: If a chunk mentions the task AND a conflict keyword → flag it
-                (deterministic, no LLM). Step 4 (LLM phrasing) is left as an
-                optional future enhancement.
+        Step 3: If a chunk mentions the task (exact key) AND a conflict keyword →
+                flag it (deterministic, no LLM). Step 4 (LLM phrasing) is left as
+                an optional future enhancement.
         """
-        # Step 1 — recently-Done candidates.
-        sql = """
+        # Step 1 — recently-completed candidates (Done/Closed/Resolved).
+        placeholders = ",".join("?" for _ in _DONE_STATUSES)
+        sql = f"""
             SELECT task_id, assignee, status, updated_at
             FROM entities
-            WHERE status = 'Done'
+            WHERE status IN ({placeholders})
               AND updated_at IS NOT NULL
               AND (julianday(?) - julianday(substr(updated_at, 1, 10))) >= 0
               AND (julianday(?) - julianday(substr(updated_at, 1, 10))) * 24 <= ?
         """
         candidates = db.run_query(
-            sql, (self._ref, self._ref, self.conflict_window_h)
+            sql, (*_DONE_STATUSES, self._ref, self._ref, self.conflict_window_h)
         )
 
         concerns: List[Dict[str, Any]] = []
@@ -304,13 +325,12 @@ class ConcernEngine:
                 logger.warning("cross-source query failed for %s: %s", task_id, exc)
                 continue
 
-            # Step 3 — keyword + id match.
+            # Step 3 — exact key + keyword match.
             for hit in hits:
                 document = (hit.get("document") or "")
-                lowered = document.lower()
-                if task_id.lower() not in lowered:
+                if not self._mentions_key(document, task_id):
                     continue
-                if not any(kw in lowered for kw in _CONFLICT_KEYWORDS):
+                if not any(kw in document.lower() for kw in _CONFLICT_KEYWORDS):
                     continue
 
                 meta = hit.get("metadata") or {}

@@ -210,6 +210,52 @@ def test_chronic_stalled_is_low_severity(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Cross-source conflict — B1 (accept Done/Closed/Resolved) + B2 (exact key match)
+# ---------------------------------------------------------------------------
+
+def test_mentions_key_is_exact_not_substring():
+    """B2: a short key must not match a longer one (AIP-5 ⊄ AIP-53)."""
+    assert ConcernEngine._mentions_key("AIP-53 is pending review", "AIP-53") is True
+    assert ConcernEngine._mentions_key("see AIP-5.", "AIP-5") is True
+    assert ConcernEngine._mentions_key("AIP-53 is pending review", "AIP-5") is False
+    assert ConcernEngine._mentions_key("AIP-530 done", "AIP-53") is False
+
+
+def test_cross_source_accepts_closed_resolved_and_exact_match(tmp_path):
+    """B1: Done/Closed/Resolved are all candidates. B2: a substring-only match
+    (PROJ-5 inside PROJ-53) must NOT be flagged."""
+    base = {
+        "source": "jira", "title": "t", "assignee": "X", "priority": "High",
+        "labels": [], "due_date": None, "description": "", "url": None,
+        "created_at": "2025-05-01T00:00:00.000+0000",
+        "updated_at": AS_OF + "T00:00:00.000+0000",  # completed "today"
+    }
+    ents = [
+        {**base, "source_id": "PROJ-1", "status": "Done"},
+        {**base, "source_id": "PROJ-2", "status": "Closed"},
+        {**base, "source_id": "PROJ-3", "status": "Resolved"},
+        {**base, "source_id": "PROJ-5", "status": "Done"},  # substring trap vs PROJ-53
+    ]
+    db = str(tmp_path / "cs.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert(ents)
+        chroma = ChromaStore(client=chromadb.EphemeralClient())
+        chroma.add_meeting_chunks({
+            "note_id": "MTG-1", "date": AS_OF, "project": "PROJ",
+            "content": "PROJ-1 still pending review. PROJ-2 pending. "
+                       "PROJ-3 chưa xong. PROJ-53 pending review.",
+        })
+        flagged = {
+            c["task_id"]
+            for c in ConcernEngine(as_of=AS_OF)._rule_cross_source_conflict(store, chroma)
+        }
+
+    assert {"PROJ-1", "PROJ-2", "PROJ-3"} <= flagged   # B1: all terminal statuses
+    assert "PROJ-5" not in flagged                      # B2: no substring false-positive
+
+
+# ---------------------------------------------------------------------------
 # Precision on mixed data (normal + anomaly)
 # ---------------------------------------------------------------------------
 
