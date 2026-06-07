@@ -2,7 +2,7 @@
 
 An end-to-end AI agent that ingests Jira, Confluence, and meeting-notes data, detects project risks, and generates a daily cited report — all in one command.
 
-> **Live demo:** `./run_agent.sh` rebuilds the dual knowledge store, runs the Concern Engine (242 concerns across 4 risk types), and calls a grounded ReAct agent that produces `output/report.md` with 24+ source citations.
+> **Live demo:** `./run_agent.sh` rebuilds the dual knowledge store, runs the Concern Engine (242 concerns across 4 risk types), and calls a grounded ReAct agent that produces `output/report.md` — a cited report that **leads with a "Priority Actions Today" block** (the highest-severity, decision-ready items) and a one-line risk-count summary. Output language follows `REPORT_LANG` (default Vietnamese).
 
 ---
 
@@ -170,7 +170,7 @@ curl    "http://localhost:8000/concerns?min_sev=3"      -H "X-API-Key: $MCP_API_
 pytest          # or: poetry run pytest
 ```
 
-Expected result: **92 passed** (the MCP-server tests self-skip if `fastapi`
+Expected result: **95 passed** (the MCP-server tests self-skip if `fastapi`
 isn't installed, rather than failing collection).
 
 To also run the 17 in-file guardrail tests:
@@ -228,16 +228,19 @@ Guardrails ([sanitizer.py](src/guardrail/sanitizer.py)) wrap the agent boundary:
 
 All tunables live in [config.py](config.py) and are overridable via `.env`:
 
-| Variable              | Default | Description                                   |
-| --------------------- | ------- | --------------------------------------------- |
-| `STALLED_DAYS`        | 7       | Days without update before a task is "stalled" |
-| `DEADLINE_RISK_DAYS`  | 5       | Window around due-date for deadline-risk rule  |
-| `BLOCKER_OPEN_DAYS`   | 3       | Days a blocker must be open to trigger alert   |
-| `CONFLICT_WINDOW_H`   | 48      | Hours for cross-source conflict window         |
-| `MAX_AGENT_ITERATIONS`| 6       | ReAct loop iteration cap                       |
-| `OPENAI_MODEL`        | —       | Model name (set in `.env`)                     |
-| `OPENAI_BASE_URL`     | —       | API base URL (set in `.env`)                   |
-| `OPENAI_API_KEY`      | —       | API key (set in `.env`, **never commit**)       |
+| Variable              | Default        | Description                                       |
+| --------------------- | -------------- | ------------------------------------------------- |
+| `STALLED_DAYS`        | 3              | Days without update before a task is "stalled"     |
+| `DEADLINE_RISK_DAYS`  | 2              | Window (± days) around due-date for deadline risk  |
+| `BLOCKER_OPEN_DAYS`   | 2              | Days a blocker must be open to trigger an alert    |
+| `CONFLICT_WINDOW_H`   | 48             | Hours for the cross-source conflict window         |
+| `CHRONIC_STALLED_DAYS`| 30             | Idle days above which an unlabelled stalled task is "chronic" (kept but de-prioritised) |
+| `MAX_AGENT_ITERATIONS`| 5              | ReAct loop iteration cap                           |
+| `REPORT_LANG`         | `vi`           | Report + risk-explanation language (`vi` / `en`)   |
+| `JIRA_BASE_URL`       | _(empty)_      | If set, Jira citations like `[FLINK-40]` become clickable links |
+| `OPENAI_MODEL`        | `gpt-4o-mini`  | Model name (overridable in `.env`)                 |
+| `OPENAI_BASE_URL`     | _(empty)_      | API base URL; empty → `api.openai.com` (set for a proxy) |
+| `OPENAI_API_KEY`      | —              | API key (set in `.env`, **never commit**)          |
 
 ---
 

@@ -2,7 +2,7 @@
 
 Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md) (v3.0).
 
-**Audit date:** 2026-06-07 · **Branch:** `main` · **HEAD:** `65f65b2` · **Working tree:** clean
+**Audit date:** 2026-06-07 · **Branch:** `main` · **HEAD:** `3a205e4` · **Working tree:** clean
 
 ---
 
@@ -13,12 +13,12 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 > HEAD and the working tree match; the repo describes one coherent state. Milestones:
 >
 > - **Ingestion orchestrator** ([run_pipeline.py](src/ingestion/run_pipeline.py)) wires 3 connectors → `EntityExtractor` → SQLite + ChromaDB, with field bridges that fix a latent indexing bug. **Verified at real-data scale** (1222 docs → 1000 entities, 1614 + 21 chunks, 719 backlinks).
-> - **Report Agent** ([tools.py](src/agents/tools.py) + [report_agent.py](src/agents/report_agent.py)) — `{"result","source_ids"}` tool envelopes, model via `.env` (**`gpt-5.5` on the ckey.vn proxy**, live smoke test passed).
-> - **Concern Engine** ([concern_engine.py](src/agents/concern_engine.py)) — 4 rules + severity + CLI, now with **committed accuracy tests** (precision 0.92 / recall 1.00 on a sampled real-data mix). Deadline rule refined to a near-deadline window to cut false positives.
+> - **Report Agent** ([tools.py](src/agents/tools.py) + [report_agent.py](src/agents/report_agent.py)) — `{"result","source_ids"}` tool envelopes, model via `.env` (**`gpt-4o-mini` on `api.openai.com`**, live smoke test passed).
+> - **Concern Engine** ([concern_engine.py](src/agents/concern_engine.py)) — 4 rules + severity + CLI, with **committed accuracy tests** (precision 0.92 / recall 1.00 on a sampled real-data mix). Deadline rule uses a near-deadline window; the **`stalled` rule is now tiered** — `needs-review` → severity 4 (actionable), long-idle/unlabelled → severity 2 (`chronic`, de-prioritised) — so backlog "zombies" no longer crowd the report.
 > - **MCP server** ([server.py](src/mcp/server.py)) — FastAPI front-end exposing `POST /ingest`, `GET /report?date=`, `GET /concerns?min_sev=`, gated by an `X-API-Key` header (fails closed if unconfigured). Wires `InputSanitizer` into ingestion (non-destructive injection flagging) and reuses `OutputSanitizer`-backed grounded-report generation via a new shared helper, [report_pipeline.py](src/agents/report_pipeline.py). **Verified live** against the real store: `/concerns` returns 242 severity-filtered findings, `/report` returns an LLM-narrated, cited Markdown report, auth correctly returns 401/200.
 > - **Guardrails** ([sanitizer.py](src/guardrail/sanitizer.py)) — input prompt-injection filter + output secret redaction, and the `audit_log` table is **now written to** (`SQLiteStore.insert_audit_log`).
-> - **One-command demo** ([run_agent.sh](run_agent.sh) → [run_agent.py](src/run_agent.py)) — rebuild stores → ingest → Concern Engine → **grounded** Report Agent → `output/report.md` + `output/concerns.json`. **Live `gpt-5.5` run** produced 242 concerns (all 4 types) and a report with 24 citations. Resilient to proxy throttling (retry + deterministic fallback). [TECH_REPORT.md](TECH_REPORT.md) written.
-> - **Repo hygiene** — `.gitignore`; `__pycache__/*.pyc`, `data/vault.db`, `data/chroma/` untracked. Legacy files (`main.py`, old `tools/registry.py`, `agent/core.py`, `memory/store.py`) removed.
+> - **One-command demo** ([run_agent.sh](run_agent.sh) → [run_agent.py](src/run_agent.py)) — rebuild stores → ingest → Concern Engine → **grounded** Report Agent → `output/report.md` + `output/concerns.json`. The report **leads with a "Priority Actions Today" block** + a one-line risk-count summary; output language follows `REPORT_LANG` (default `vi`). **Live `gpt-4o-mini` run** produced 242 concerns (all 4 types) and a prioritised cited report in 3 ReAct iterations. Resilient to LLM/proxy errors (retry + deterministic fallback). [TECH_REPORT.md](TECH_REPORT.md) written.
+> - **Repo hygiene** — `.gitignore`; `__pycache__/*.pyc`, `data/vault.db`, `data/chroma/` untracked. Legacy files (`main.py`, old `tools/registry.py`, `agent/core.py`, `memory/store.py`) removed. **Reproducible setup** via `requirements.txt` + `.env.example` (pip/conda; Poetry optional); the test suite is green (**95**) and no longer collapses when an optional dep like `fastapi` is missing.
 
 ---
 
@@ -29,12 +29,12 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | **Week 1** — Design & Data    | **100%**   | All tasks complete                                                                                                   |
 | **Week 2** — Ingestion & KB   | **100%**   | Orchestrator + verified end-to-end at real-data scale                                                                |
 | **Week 3** — Report Agent     | **~100%**  | ReAct loop, tools, citation prompt, tests, live model; V2 met (24-citation report from a live run)                   |
-| **Week 4** — Concern Engine   | **~90%**   | All rules + severity + CLI + committed tests; precision 0.92 / recall 1.00 (sampled). Precision is prevalence-sensitive |
+| **Week 4** — Concern Engine   | **~90%**   | All rules + severity + CLI + committed tests; precision 0.92 / recall 1.00 (sampled). `stalled` now tiered (needs-review vs chronic). Precision is prevalence-sensitive |
 | **Week 5** — MCP & Guardrails | **100%**   | No gap — MCP server (`/ingest`, `/report`, `/concerns`, `X-API-Key` auth) + input/output guardrails + audit-log writes all done and live-verified                |
 | **Week 6** — Packaging        | **~85%**   | `run_agent.sh` + `output/` + `TECH_REPORT.md` done; V1–V6 met (live demo ran). MCP-fronted demo not required         |
 
 > [!IMPORTANT]
-> The **end-to-end product runs**: `run_agent.sh` rebuilds the dual store, ingests, detects risks, and writes a cited daily report + structured concerns in one command, with a live `gpt-5.5` run demonstrated. The **MCP server (Week 5.1)** — the last major gap identified in the prior audit — is now implemented and live-verified: a FastAPI front-end exposing `/ingest`, `/report`, and `/concerns` over `X-API-Key` auth, with the existing guardrails wired in (`InputSanitizer` on ingest, `OutputSanitizer` on report output).
+> The **end-to-end product runs**: `run_agent.sh` rebuilds the dual store, ingests, detects risks, and writes a **prioritised** cited daily report (leading with a "Priority Actions Today" block) + structured concerns in one command, with a live `gpt-4o-mini` run demonstrated. The **MCP server (Week 5.1)** — the last major gap identified in the prior audit — is now implemented and live-verified: a FastAPI front-end exposing `/ingest`, `/report`, and `/concerns` over `X-API-Key` auth, with the existing guardrails wired in (`InputSanitizer` on ingest, `OutputSanitizer` on report output).
 
 ---
 
@@ -78,8 +78,8 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | 3.2 | **ReAct loop** (OpenAI SDK)                                       | ✅ Done       | [report_agent.py](src/agents/report_agent.py) (307 lines) — `run_report_agent(user_query, date, sqlite_store, chroma_store)`, `tool_choice="auto"`, ≤ `MAX_AGENT_ITERATIONS`, `_finalize_partial()` |
 | 3.3 | **Citation enforcement** (system prompt)                          | ✅ Done       | `SYSTEM_PROMPT` mandates `[source_id]`, forbids unsourced claims, 4 sections: **Overview / Changes Today / Concerns / Next Actions**                                                                |
 | —   | **Model config + CLI**                                            | ✅ Done       | `MODEL = OPENAI_MODEL` (`.env`); honours `OPENAI_API_KEY`/`OPENAI_BASE_URL`; `__main__` CLI (`--date`, `--query`)                                                                                   |
-| —   | **Live LLM connectivity**                                         | ✅ Verified   | Smoke test: `chat.completions.create(model="gpt-5.5")` against `https://ckey.vn/v1` returned successfully                                                                                           |
-| —   | **End-to-end report (V2)**                                        | ✅ Verified   | Live `gpt-5.5` run via `run_agent.sh` produced `output/report.md` with **24 citations** in 4 ReAct iterations.                                                                                      |
+| —   | **Live LLM connectivity**                                         | ✅ Verified   | Smoke test: `chat.completions.create(model="gpt-4o-mini")` against `https://api.openai.com/v1` returned HTTP 200                                                                                    |
+| —   | **End-to-end report (V2)**                                        | ✅ Verified   | Live `gpt-4o-mini` run via `run_agent.sh` produced a cited `output/report.md` (≥5 citations; an earlier proxy run produced 24) in 3 ReAct iterations.                                               |
 
 ---
 
@@ -90,7 +90,7 @@ All rules live in [concern_engine.py](src/agents/concern_engine.py) (354 lines).
 | #   | Task                                                 | Status  | Evidence                                                                                                                                                                |
 | --- | ---------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 4.1 | **Config thresholds**                                | ✅ Done | [config.py](config.py) — `STALLED_DAYS`, `DEADLINE_RISK_DAYS`, `BLOCKER_OPEN_DAYS`, `CONFLICT_WINDOW_H`                                                                 |
-| 4.2 | **Rule 1: Stalled task** (SQL)                       | ✅ Done | `_rule_stalled()` — `status='In Progress'` AND not updated > `STALLED_DAYS` (date via `substr` to dodge `+0000` tz)                                                     |
+| 4.2 | **Rule 1: Stalled task** (SQL)                       | ✅ Done | `_rule_stalled()` — `status='In Progress'` AND not updated > `STALLED_DAYS`; **tiered severity** via `needs-review` label (sev 4) vs `chronic` long-idle (sev 2). Date via `substr` to dodge `+0000` tz |
 | 4.2 | **Rule 2: Deadline risk** (SQL)                      | ✅ Done | `_rule_deadline_risk()` — not-`Done` AND **near-deadline window** (`±DEADLINE_RISK_DAYS`), not "any overdue" → far fewer false positives                                |
 | 4.2 | **Rule 3: Unresolved blocker** (SQL)                 | ✅ Done | `_rule_blocker()` — `json_each(labels)` has `'blocker'`, open > `BLOCKER_OPEN_DAYS`; `dependent_count` from `backlinks`                                                 |
 | 4.3 | **Cross-source conflict** (rule filter → LLM verify) | ✅ Done | `_rule_cross_source_conflict()` — recent-`Done` (`CONFLICT_WINDOW_H`) + meeting chunk with `pending\|chờ\|review\|chưa`. Rule-based; LLM phrasing left as optional hook |
@@ -121,7 +121,7 @@ All rules live in [concern_engine.py](src/agents/concern_engine.py) (354 lines).
 | 6.2 | **V3**: all 4 anomaly types detected   | ✅ Done    | `concerns.json` (242): deadline / stalled / blocker / cross-source all present            |
 | 6.2 | **V4**: Precision/Recall ≥ 80%         | ✅ Done\*  | 0.92 / 1.00 on sampled mix (\*prevalence-sensitive — see Risks)                            |
 | 6.2 | **V5**: Guardrail blocks 3+ injections | ✅ Done    | [test_guardrail.py](tests/test_guardrail.py) — 4 blocked, 0 false positives               |
-| 6.2 | **V6**: Live demo                      | ✅ Done    | Live `gpt-5.5` run produced the report (see [TECH_REPORT.md](TECH_REPORT.md))             |
+| 6.2 | **V6**: Live demo                      | ✅ Done    | Live `gpt-4o-mini` run produced the report (see [TECH_REPORT.md](TECH_REPORT.md))         |
 | 6.3 | **Tech Report**                        | ✅ Done    | [TECH_REPORT.md](TECH_REPORT.md) — architecture, decisions, benchmarks, bugs fixed, V1–V6, roadmap |
 
 ---
@@ -165,12 +165,12 @@ All files below are committed and present on disk (working tree is clean).
 
 ## Test Suite Status
 
-`python -m pytest`: **91 passed, 1 failed** (no collection errors).
+`python -m pytest` (in the `VSF_prj` env): **95 passed** (no failures, no collection errors; the MCP-server tests self-skip if `fastapi` is absent).
 
 | Test File                                                                | Result    | Notes                                                                                                |
 | ------------------------------------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------- |
-| [test_mcp_server.py](tests/test_mcp_server.py)                           | ✅ Pass   | 12 tests: auth (missing/wrong/unconfigured key), `/ingest` + `InputSanitizer` wiring, `/report` grounding, `/concerns` severity filtering — all mocked (no real DB/Chroma/LLM) |
-| [test_concern_engine.py](tests/test_concern_engine.py)                   | ✅ Pass   | Per-rule recall + precision **0.92** / recall **1.00** on real anomalies + sampled normals           |
+| [test_mcp_server.py](tests/test_mcp_server.py)                           | ✅ Pass   | 12 tests: auth (missing/wrong/unconfigured key), `/ingest` + `InputSanitizer` wiring, `/report` grounding, `/concerns` severity filtering — all mocked; module self-skips via `pytest.importorskip("fastapi")` |
+| [test_concern_engine.py](tests/test_concern_engine.py)                   | ✅ Pass   | Per-rule recall + precision **0.92** / recall **1.00**; **+3 tests** for the tiered stalled rule (needs-review→sev 4, chronic→sev 2) |
 | [test_guardrail.py](tests/test_guardrail.py)                             | ✅ Pass   | 10 adversarial cases: 4 injections filtered, 3 benign pass-through, zero false positives             |
 | [test_run_pipeline.py](tests/test_run_pipeline.py)                       | ✅ Pass   | 13 e2e tests: SQLite + Chroma routing incl. bridged `page_id`/`note_id`, field bridges, stats        |
 | [test_report_agent.py](tests/test_report_agent.py)                       | ✅ Pass   | 5 mocked-OpenAI ReAct tests: tool path, max-iteration caveat, empty-result no-hallucination          |
@@ -179,7 +179,7 @@ All files below are committed and present on disk (working tree is clean).
 | [test_jira_connector.py](tests/test_jira_connector.py)                   | ✅ Pass   | Load, normalize, ground-truth stripping, source normalized to "jira"                                 |
 | [test_entity_extractor.py](tests/test_entity_extractor.py)               | ✅ Pass   | Jira/Confluence/Meeting extraction paths                                                             |
 | [test_ingestion_integration.py](tests/test_ingestion_integration.py)     | ✅ Pass   | JiraConnector → SQLiteStore round-trip                                                               |
-| [test_meeting_notes_connector.py](tests/test_meeting_notes_connector.py) | ⚠️ 1 fail | `test_load_meeting_notes_json` asserts `len == 4` but data has **5 meetings** — stale, update to 5   |
+| [test_meeting_notes_connector.py](tests/test_meeting_notes_connector.py) | ✅ Pass   | Stale `len == 4` assertion fixed to `5` (the data file has 5 meetings)   |
 
 > [sanitizer.py](src/guardrail/sanitizer.py) also carries **17 in-file parametrized tests** (run with `pytest src/guardrail/sanitizer.py`); they are not auto-discovered by the default `pytest` run because the file is not named `test_*.py`.
 
@@ -187,7 +187,7 @@ All files below are committed and present on disk (working tree is clean).
 
 ## Configuration & Repo Hygiene
 
-- **LLM:** `OPENAI_MODEL=gpt-5.5`, `OPENAI_BASE_URL=https://ckey.vn/v1`, key in untracked `.env`. ckey.vn is an OpenAI-compatible proxy; its usage payload suggests `gpt-5.5` maps onto a Claude backend (works for our purposes).
+- **LLM:** the live `.env` targets **`OPENAI_MODEL=gpt-4o-mini` on `api.openai.com`** (no `OPENAI_BASE_URL`); the previous ckey.vn `gpt-5.5` proxy config is kept commented in `.env` for easy revert. Key in untracked `.env`. New report knobs: `REPORT_LANG` (default `vi`), `JIRA_BASE_URL` (optional, off by default), `CHRONIC_STALLED_DAYS=30`. A pip `requirements.txt` and `.env.example` are committed for non-Poetry setup.
 - **`.gitignore`** ignores `__pycache__/`, `*.pyc`, caches, venvs, `data/vault.db`, `data/chroma/`, OS cruft. `.env` ignored; source JSON under `data/{jira,confluence,meeting_notes}/` tracked.
 - **Untracked generated stores:** `data/vault.db` + `data/chroma/` and `output/` are not versioned (kept on local disk). A fresh clone rebuilds everything with **`./run_agent.sh`** (or `python src/ingestion/run_pipeline.py` for ingestion only).
 - **Audit log** is now populated at runtime by the input guardrail (`InputSanitizer` → `SQLiteStore.insert_audit_log`).
@@ -199,17 +199,18 @@ All files below are committed and present on disk (working tree is clean).
 1. **🔑 Leaked key in git history.** The old `sk-8d11…` key was removed from the tree but still exists in history (commit `d2657ea`). **Rotate it on ckey.vn.** (The current `sk-c9bf…` key is safe — only in the untracked `.env`.)
 2. **Concern-Engine precision is prevalence-sensitive.** `test_concern_engine` measures **0.92** on a sampled mix (108 anomalies + 100 normals); against all 856 normals it would be lower (~0.5), because the `stalled` rule surfaces genuinely-stale normal tasks (the anomalies are distinguished by `needs-review`-style labels the date rule does not use).
 3. **`as_of` reminder.** Concern-engine rules compare against `as_of` (default today). The synthetic data is mid-2025, so run with `--date 2025-05-30` for meaningful results.
-4. **ckey.vn proxy throttles bursts.** The agent's rapid multi-call runs intermittently get `403` (upstream rate-limit). Mitigated by retry-with-backoff + a deterministic fallback report, so a run never crashes — but a fully LLM-narrated report may need a re-run when the proxy is throttling. A full-prevalence V4 measurement (vs the sampled mix) is still pending.
+4. **Proxy throttling (only when `OPENAI_BASE_URL` points at a proxy).** The default now talks directly to `api.openai.com` and the latest live run succeeded. When a proxy like ckey.vn is configured it can rate-limit bursts (`403`) — mitigated by retry-with-backoff + a deterministic fallback, so a run never crashes. A full-prevalence V4 measurement (vs the sampled mix) is still pending.
 5. **Guardrail in-file tests aren't in default discovery.** The 17 tests inside `sanitizer.py` run only via `pytest src/guardrail/sanitizer.py`; consider mirroring to `tests/` for CI.
-6. **Stale test.** `test_meeting_notes_connector.py::test_load_meeting_notes_json` expects 4 meetings; data has 5. One-line fix to make the suite fully green.
-7. **`SSL_CERT_FILE` misconfigured in the `VSF_prj` conda env (local dev-environment issue, not a code bug).** It points to `<env>/ssl/cacert.pem`, which doesn't exist, so `openai.OpenAI()` construction raises `FileNotFoundError` and `/report` (and `run_agent.py`) fall back to the deterministic Concern-Engine report. The correct bundle ships with `certifi` (`<env>/Lib/site-packages/certifi/cacert.pem`); pointing `SSL_CERT_FILE` there (e.g. `conda env config vars set SSL_CERT_FILE=<path> -n VSF_prj`) restores live LLM narration — confirmed working when tested with the corrected path.
+6. **~~Stale test~~ — RESOLVED.** `test_meeting_notes_connector.py` now asserts 5 meetings; the suite is fully green (95 passed). The MCP-server tests also self-skip when `fastapi` is absent instead of aborting collection.
+7. **`SSL_CERT_FILE` in the `VSF_prj` conda env (local dev-environment note, not a code bug).** The latest live run (`gpt-4o-mini` on `api.openai.com`) constructed `openai.OpenAI()` and returned HTTP 200, so LLM narration is currently working. If you ever hit `FileNotFoundError` on client construction, `SSL_CERT_FILE` is pointing at a missing bundle — set it to certifi's (`<env>/Lib/site-packages/certifi/cacert.pem`, e.g. `conda env config vars set SSL_CERT_FILE=<path> -n VSF_prj`).
 
 ---
 
 ## What to Build Next (to follow the plan)
 
-With the MCP server now done, no major plan gaps remain. Remaining items are polish / optional follow-ups:
+With the MCP server and report-prioritisation (renovation #1) now done, no major plan gaps remain. Remaining items are polish / optional follow-ups:
 
-1. **Cross-source recall:** add Meeting Notes that reference the Jira `cross_source_conflict` anomalies so that rule has evidence to detect more than 1.
-2. **Tighten accuracy (optional):** measure V4 at full prevalence and, if needed, improve `stalled` precision; fix the stale meeting-notes assertion.
-3. **Fix the `SSL_CERT_FILE` env var** in the `VSF_prj` conda env (see Risk #7) so live LLM narration works without a per-session workaround.
+1. **Cross-source recall:** add Meeting Notes that reference the Jira `cross_source_conflict` anomalies so that rule detects more than 1.
+2. **Measure V4 at full prevalence** (all 856 normals), not just the sampled mix, so the accuracy headline isn't overstated.
+3. **Delivery:** schedule the daily run and push the report to where PMs work (email / Slack / Teams) — it currently writes files to `output/`.
+4. **Rotate the leaked key** still in git history at commit `d2657ea` (see Risk #1).
