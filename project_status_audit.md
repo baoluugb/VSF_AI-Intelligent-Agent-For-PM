@@ -2,7 +2,7 @@
 
 Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md) (v3.0).
 
-**Audit date:** 2026-06-05 · **Branch:** `main` · **HEAD:** `2ce667d` · **Working tree:** clean
+**Audit date:** 2026-06-07 · **Branch:** `main` · **HEAD:** `65f65b2` · **Working tree:** clean
 
 ---
 
@@ -15,6 +15,7 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 > - **Ingestion orchestrator** ([run_pipeline.py](src/ingestion/run_pipeline.py)) wires 3 connectors → `EntityExtractor` → SQLite + ChromaDB, with field bridges that fix a latent indexing bug. **Verified at real-data scale** (1222 docs → 1000 entities, 1614 + 21 chunks, 719 backlinks).
 > - **Report Agent** ([tools.py](src/agents/tools.py) + [report_agent.py](src/agents/report_agent.py)) — `{"result","source_ids"}` tool envelopes, model via `.env` (**`gpt-5.5` on the ckey.vn proxy**, live smoke test passed).
 > - **Concern Engine** ([concern_engine.py](src/agents/concern_engine.py)) — 4 rules + severity + CLI, now with **committed accuracy tests** (precision 0.92 / recall 1.00 on a sampled real-data mix). Deadline rule refined to a near-deadline window to cut false positives.
+> - **MCP server** ([server.py](src/mcp/server.py)) — FastAPI front-end exposing `POST /ingest`, `GET /report?date=`, `GET /concerns?min_sev=`, gated by an `X-API-Key` header (fails closed if unconfigured). Wires `InputSanitizer` into ingestion (non-destructive injection flagging) and reuses `OutputSanitizer`-backed grounded-report generation via a new shared helper, [report_pipeline.py](src/agents/report_pipeline.py). **Verified live** against the real store: `/concerns` returns 242 severity-filtered findings, `/report` returns an LLM-narrated, cited Markdown report, auth correctly returns 401/200.
 > - **Guardrails** ([sanitizer.py](src/guardrail/sanitizer.py)) — input prompt-injection filter + output secret redaction, and the `audit_log` table is **now written to** (`SQLiteStore.insert_audit_log`).
 > - **One-command demo** ([run_agent.sh](run_agent.sh) → [run_agent.py](src/run_agent.py)) — rebuild stores → ingest → Concern Engine → **grounded** Report Agent → `output/report.md` + `output/concerns.json`. **Live `gpt-5.5` run** produced 242 concerns (all 4 types) and a report with 24 citations. Resilient to proxy throttling (retry + deterministic fallback). [TECH_REPORT.md](TECH_REPORT.md) written.
 > - **Repo hygiene** — `.gitignore`; `__pycache__/*.pyc`, `data/vault.db`, `data/chroma/` untracked. Legacy files (`main.py`, old `tools/registry.py`, `agent/core.py`, `memory/store.py`) removed.
@@ -29,11 +30,11 @@ Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Pro
 | **Week 2** — Ingestion & KB   | **100%**   | Orchestrator + verified end-to-end at real-data scale                                                                |
 | **Week 3** — Report Agent     | **~100%**  | ReAct loop, tools, citation prompt, tests, live model; V2 met (24-citation report from a live run)                   |
 | **Week 4** — Concern Engine   | **~90%**   | All rules + severity + CLI + committed tests; precision 0.92 / recall 1.00 (sampled). Precision is prevalence-sensitive |
-| **Week 5** — MCP & Guardrails | **~55%**   | Input + output guardrails + audit-log writes done; **MCP server + endpoints still missing**                          |
+| **Week 5** — MCP & Guardrails | **100%**   | No gap — MCP server (`/ingest`, `/report`, `/concerns`, `X-API-Key` auth) + input/output guardrails + audit-log writes all done and live-verified                |
 | **Week 6** — Packaging        | **~85%**   | `run_agent.sh` + `output/` + `TECH_REPORT.md` done; V1–V6 met (live demo ran). MCP-fronted demo not required         |
 
 > [!IMPORTANT]
-> The **end-to-end product runs**: `run_agent.sh` rebuilds the dual store, ingests, detects risks, and writes a cited daily report + structured concerns in one command, with a live `gpt-5.5` run demonstrated. The **only major remaining piece is the MCP server (Week 5.1)** — a FastAPI front-end over the existing ingestion / report / concern CLIs (guardrails and audit-log are already built to wire in).
+> The **end-to-end product runs**: `run_agent.sh` rebuilds the dual store, ingests, detects risks, and writes a cited daily report + structured concerns in one command, with a live `gpt-5.5` run demonstrated. The **MCP server (Week 5.1)** — the last major gap identified in the prior audit — is now implemented and live-verified: a FastAPI front-end exposing `/ingest`, `/report`, and `/concerns` over `X-API-Key` auth, with the existing guardrails wired in (`InputSanitizer` on ingest, `OutputSanitizer` on report output).
 
 ---
 
@@ -102,11 +103,11 @@ All rules live in [concern_engine.py](src/agents/concern_engine.py) (354 lines).
 
 | #   | Task                                   | Status         | Evidence                                                                                                            |
 | --- | -------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 5.1 | **MCP Server** (FastAPI + 3 endpoints) | ❌ Not started | No `mcp/` package                                                                                                   |
+| 5.1 | **MCP Server** (FastAPI + 3 endpoints) | ✅ Done        | [server.py](src/mcp/server.py) — `POST /ingest`, `GET /report?date=`, `GET /concerns?min_sev=`; `APIKeyHeader`-gated (`X-API-Key`, fails closed if `MCP_API_KEY` unset); 213 lines |
 | 5.2 | **Input guardrail** (sanitize_input)   | ✅ Done        | [sanitizer.py](src/guardrail/sanitizer.py) — `InputSanitizer`: injection patterns → `audit_log` + `[FILTERED]`, truncate 2000, strip HTML |
 | 5.2 | **Output guardrail** (sanitize_output) | ✅ Done        | `OutputSanitizer` — redacts `sk-…` keys, `Bearer …` tokens, PEM `PRIVATE KEY` blocks → `[REDACTED]`                |
-| 5.2 | **Audit log** (SQLite)                 | ✅ Done        | `SQLiteStore.insert_audit_log()` writes `timestamp | source_id | field | flag_type | snippet`; driven by `InputSanitizer` |
-| 5.3 | **End-to-end test** (curl)             | ❌ Not started | No API to test yet (MCP server pending)                                                                             |
+| 5.2 | **Audit log** (SQLite)                 | ✅ Done        | `SQLiteStore.insert_audit_log()` writes `timestamp \| source_id \| field \| flag_type \| snippet`; driven by `InputSanitizer` |
+| 5.3 | **End-to-end test** (curl)             | ✅ Done        | Live curl smoke test: auth 401/200, `/concerns` → 242 findings (severity-filtered correctly), `/report` → LLM-narrated cited Markdown; 12 automated tests in [test_mcp_server.py](tests/test_mcp_server.py) |
 
 ---
 
@@ -133,7 +134,9 @@ All files below are committed and present on disk (working tree is clean).
 
 | File                                                                   | Lines | Quality Notes                                                                                                     |
 | ---------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------- |
-| [run_agent.py](src/run_agent.py)                                       | 276   | Week-6 orchestrator: ingest → concerns → grounded report → `output/`; diff seeding + deterministic fallback       |
+| [server.py](src/mcp/server.py)                                         | 213   | FastAPI front-end: `/ingest` `/report` `/concerns`, `APIKeyHeader` auth (fails closed), lazy `ChromaStore` singleton, Pydantic schemas for OpenAPI docs |
+| [report_pipeline.py](src/agents/report_pipeline.py)                    | ~95   | Shared grounded-report helper (concern selection → prompt → Report Agent → fallback → `OutputSanitizer`), factored out of `run_agent.py` so the CLI and MCP server stay in sync |
+| [run_agent.py](src/run_agent.py)                                       | 224   | Week-6 orchestrator: ingest → concerns → grounded report → `output/`; diff seeding + deterministic fallback (now delegates report generation to `report_pipeline`) |
 | [run_agent.sh](run_agent.sh)                                           | 76    | One-command wrapper: reset stores, run orchestrator, V2/V3 verification                                           |
 | [TECH_REPORT.md](TECH_REPORT.md)                                       | 210   | Architecture, decisions, benchmarks, bugs-fixed, V1–V6, roadmap                                                   |
 | [concern_engine.py](src/agents/concern_engine.py)                      | 354   | 4 rules (3 SQL + 1 rule-based cross-source), near-deadline window, `score_severity`, `as_of` date, CLI            |
@@ -154,7 +157,6 @@ All files below are committed and present on disk (working tree is clean).
 
 | Expected File       | Plan Reference | Note                                                                                 |
 | ------------------- | -------------- | ------------------------------------------------------------------------------------ |
-| `src/mcp/server.py` | Week 5 §5.1    | **Not started — the only major remaining piece** (FastAPI front-end over the CLIs)   |
 | `src/main.py`       | (app wiring)   | Removed deliberately ("implement later"); `run_agent.sh` is the de-facto entry point |
 | _(audit logging)_   | Week 5 §5.2    | Implemented as `SQLiteStore.insert_audit_log` — no separate `guardrail/audit_log.py` |
 | _(`output/*`)_      | Week 6         | Generated by `run_agent.sh`; gitignored (not committed). Sample embedded in TECH_REPORT.md |
@@ -163,10 +165,11 @@ All files below are committed and present on disk (working tree is clean).
 
 ## Test Suite Status
 
-`python -m pytest`: **77 passed, 1 failed** (no collection errors).
+`python -m pytest`: **91 passed, 1 failed** (no collection errors).
 
 | Test File                                                                | Result    | Notes                                                                                                |
 | ------------------------------------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------- |
+| [test_mcp_server.py](tests/test_mcp_server.py)                           | ✅ Pass   | 12 tests: auth (missing/wrong/unconfigured key), `/ingest` + `InputSanitizer` wiring, `/report` grounding, `/concerns` severity filtering — all mocked (no real DB/Chroma/LLM) |
 | [test_concern_engine.py](tests/test_concern_engine.py)                   | ✅ Pass   | Per-rule recall + precision **0.92** / recall **1.00** on real anomalies + sampled normals           |
 | [test_guardrail.py](tests/test_guardrail.py)                             | ✅ Pass   | 10 adversarial cases: 4 injections filtered, 3 benign pass-through, zero false positives             |
 | [test_run_pipeline.py](tests/test_run_pipeline.py)                       | ✅ Pass   | 13 e2e tests: SQLite + Chroma routing incl. bridged `page_id`/`note_id`, field bridges, stats        |
@@ -199,11 +202,14 @@ All files below are committed and present on disk (working tree is clean).
 4. **ckey.vn proxy throttles bursts.** The agent's rapid multi-call runs intermittently get `403` (upstream rate-limit). Mitigated by retry-with-backoff + a deterministic fallback report, so a run never crashes — but a fully LLM-narrated report may need a re-run when the proxy is throttling. A full-prevalence V4 measurement (vs the sampled mix) is still pending.
 5. **Guardrail in-file tests aren't in default discovery.** The 17 tests inside `sanitizer.py` run only via `pytest src/guardrail/sanitizer.py`; consider mirroring to `tests/` for CI.
 6. **Stale test.** `test_meeting_notes_connector.py::test_load_meeting_notes_json` expects 4 meetings; data has 5. One-line fix to make the suite fully green.
+7. **`SSL_CERT_FILE` misconfigured in the `VSF_prj` conda env (local dev-environment issue, not a code bug).** It points to `<env>/ssl/cacert.pem`, which doesn't exist, so `openai.OpenAI()` construction raises `FileNotFoundError` and `/report` (and `run_agent.py`) fall back to the deterministic Concern-Engine report. The correct bundle ships with `certifi` (`<env>/Lib/site-packages/certifi/cacert.pem`); pointing `SSL_CERT_FILE` there (e.g. `conda env config vars set SSL_CERT_FILE=<path> -n VSF_prj`) restores live LLM narration — confirmed working when tested with the corrected path.
 
 ---
 
 ## What to Build Next (to follow the plan)
 
-1. **Week 5 — MCP server (only major gap):** FastAPI app exposing `/ingest`, `/report?date=…`, `/concerns?min_sev=…` with `X-API-Key` auth; wire `InputSanitizer` on ingest and `OutputSanitizer` on report output. Then V5.3 (curl e2e).
-2. **Cross-source recall:** add Meeting Notes that reference the Jira `cross_source_conflict` anomalies so that rule has evidence to detect more than 1.
-3. **Tighten accuracy (optional):** measure V4 at full prevalence and, if needed, improve `stalled` precision; fix the stale meeting-notes assertion.
+With the MCP server now done, no major plan gaps remain. Remaining items are polish / optional follow-ups:
+
+1. **Cross-source recall:** add Meeting Notes that reference the Jira `cross_source_conflict` anomalies so that rule has evidence to detect more than 1.
+2. **Tighten accuracy (optional):** measure V4 at full prevalence and, if needed, improve `stalled` precision; fix the stale meeting-notes assertion.
+3. **Fix the `SSL_CERT_FILE` env var** in the `VSF_prj` conda env (see Risk #7) so live LLM narration works without a per-session workaround.

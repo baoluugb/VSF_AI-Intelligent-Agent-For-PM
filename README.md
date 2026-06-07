@@ -32,9 +32,12 @@ VSF_AI-Intelligent-Agent-For-PM/
 │   ├── agents/
 │   │   ├── concern_engine.py               # 4 risk rules + severity scoring
 │   │   ├── report_agent.py                 # ReAct loop + citation enforcement
+│   │   ├── report_pipeline.py              # Shared grounded-report helper (CLI + MCP server)
 │   │   └── tools.py                        # OpenAI tool schemas + dispatch
 │   ├── guardrail/
 │   │   └── sanitizer.py                    # Input injection filter + output secret redaction
+│   ├── mcp/
+│   │   └── server.py                       # FastAPI server: /ingest /report /concerns (X-API-Key auth)
 │   ├── ingestion/
 │   │   ├── run_pipeline.py                 # Ingestion orchestrator (CLI)
 │   │   ├── confluence_connector.py
@@ -48,6 +51,7 @@ VSF_AI-Intelligent-Agent-For-PM/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_concern_engine.py              # Precision 0.92 / Recall 1.00
+│   ├── test_mcp_server.py                  # FastAPI auth + /ingest /report /concerns (mocked)
 │   ├── test_guardrail.py
 │   ├── test_run_pipeline.py
 │   ├── test_report_agent.py
@@ -131,6 +135,25 @@ poetry run python -m src.agents.concern_engine --date 2025-05-30
 poetry run python -m src.agents.report_agent --date 2025-05-30 --query "daily status"
 ```
 
+### 7. MCP server (FastAPI front-end)
+
+Set `MCP_API_KEY` in `.env` (any random string — e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`), then:
+
+```bash
+poetry run python src/mcp/server.py
+# Swagger UI: http://localhost:8000/docs
+```
+
+Every endpoint requires an `X-API-Key` header matching `MCP_API_KEY`:
+
+```bash
+curl -X POST "http://localhost:8000/ingest"            -H "X-API-Key: $MCP_API_KEY"
+curl    "http://localhost:8000/report?date=2025-05-30" -H "X-API-Key: $MCP_API_KEY"
+curl    "http://localhost:8000/concerns?min_sev=3"      -H "X-API-Key: $MCP_API_KEY"
+```
+
+`/ingest` reuses the guardrail-wired ingestion pipeline (`InputSanitizer` screens text before indexing); `/report` and `/concerns` ground their output in the same Concern Engine + `OutputSanitizer`-redacted Report Agent used by `run_agent.sh`.
+
 ---
 
 ## Running Tests
@@ -139,7 +162,7 @@ poetry run python -m src.agents.report_agent --date 2025-05-30 --query "daily st
 poetry run pytest
 ```
 
-Expected result: **77 passed, 1 failed** (one stale assertion in `test_meeting_notes_connector.py` that expects 4 meetings; the data file has 5).
+Expected result: **91 passed, 1 failed** (one stale assertion in `test_meeting_notes_connector.py` that expects 4 meetings; the data file has 5).
 
 To also run the 17 in-file guardrail tests:
 
@@ -229,10 +252,10 @@ All data lives under `data/` and is version-controlled (JSON only; `vault.db` an
 | Week 2 — Ingestion & KB        | **100%**   |
 | Week 3 — Report Agent          | **~100%**  |
 | Week 4 — Concern Engine        | **~90%**   |
-| Week 5 — MCP & Guardrails      | **~55%**   |
+| Week 5 — MCP & Guardrails      | **100%**   |
 | Week 6 — Packaging & Demo      | **~85%**   |
 
-The only major remaining piece is the **MCP server** (`src/mcp/server.py`) — a FastAPI front-end with `/ingest`, `/report`, and `/concerns` endpoints. See [project_status_audit.md](project_status_audit.md) for the full task-level breakdown.
+The **MCP server** (`src/mcp/server.py`) is implemented and live-verified — a FastAPI front-end exposing `/ingest`, `/report`, and `/concerns`, gated by `X-API-Key` auth and wired into the existing guardrails (see [Quick Start §7](#7-mcp-server-fastapi-front-end)). See [project_status_audit.md](project_status_audit.md) for the full task-level breakdown.
 
 ---
 
