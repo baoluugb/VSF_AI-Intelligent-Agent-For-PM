@@ -50,9 +50,25 @@ if TYPE_CHECKING:  # annotations only — instances are passed in at call time
 
 logger = logging.getLogger(__name__)
 
-# Keywords that, when found in a meeting chunk mentioning a "Done" task, signal a
-# cross-source conflict (the plan's rule-based fallback: pending|chờ|review|chưa).
-_CONFLICT_KEYWORDS = ("pending", "chờ", "review", "chưa")
+# Phrases that, in a meeting chunk mentioning a *completed* Jira task, signal the
+# meeting still treats it as live work — i.e. a cross-source conflict. Two families:
+#   1. waiting / not-yet-finished  (pending, review, chờ, chưa)
+#   2. still-active despite Jira saying done  (in progress, re-open, still failing,
+#      not merged, unresolved, ...) — needed to catch e.g. a task Jira marked
+#      "Closed" that a meeting says to re-open because tests still fail.
+_CONFLICT_KEYWORDS = (
+    # waiting / not yet finished
+    "pending", "chờ", "review", "chưa",
+    # still active despite a "completed" Jira status
+    "in progress", "in_progress", "đang làm",
+    "re-open", "reopen", "mở lại",
+    "still fail", "still open", "not merged", "not yet merged",
+    "unresolved", "incomplete",
+)
+
+# Jira task key, e.g. ``AIP-30`` / ``FLINK-1``. The look-arounds make the match
+# exact: a trailing digit guard stops ``AIP-5`` matching inside ``AIP-53``.
+_TASK_KEY_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]*-\d+)(?![0-9])")
 
 _MEETING_COLLECTION = "meeting_chunks"
 
@@ -191,6 +207,25 @@ class ConcernEngine:
         pattern = r"(?<![A-Za-z0-9])" + re.escape(task_id) + r"(?![0-9])"
         return re.search(pattern, document, re.IGNORECASE) is not None
 
+    @staticmethod
+    def _extract_keys(document: str) -> List[str]:
+        """Return the distinct Jira task keys mentioned in *document*, in order.
+
+        Pulling whole keys (``AIP-30``, ``FLINK-1``) straight from the text is
+        inherently exact — ``AIP-5`` is never extracted from ``AIP-53`` — so the
+        substring trap that ``_mentions_key`` guards against cannot occur here.
+        """
+        if not document:
+            return []
+        seen: set = set()
+        keys: List[str] = []
+        for m in _TASK_KEY_RE.finditer(document):
+            key = m.group(1)
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+        return keys
+
     # ------------------------------------------------------------------
     # Rule 2 — Deadline risk
     # ------------------------------------------------------------------
@@ -203,19 +238,30 @@ class ConcernEngine:
         task overdue by months is a stalled/abandoned concern, not an
         *approaching*-deadline risk, and flagging every overdue task floods the
         result with false positives.
+
+        Terminal statuses (``_DONE_STATUSES`` = Done/Closed/Resolved) are
+        excluded — a closed task near its old due date is not a deadline risk.
         """
-        sql = """
+        placeholders = ",".join("?" for _ in _DONE_STATUSES)
+        sql = f"""
             SELECT task_id, assignee, status, due_date,
                    julianday(due_date) - julianday(?) AS days_remaining
             FROM entities
-            WHERE status != 'Done'
+            WHERE status NOT IN ({placeholders})
               AND due_date IS NOT NULL AND due_date != ''
               AND julianday(due_date) BETWEEN julianday(?) - ? AND julianday(?) + ?
             ORDER BY days_remaining ASC
         """
         rows = db.run_query(
             sql,
-            (self._ref, self._ref, self.deadline_risk_days, self._ref, self.deadline_risk_days),
+            (
+                self._ref,
+                *_DONE_STATUSES,
+                self._ref,
+                self.deadline_risk_days,
+                self._ref,
+                self.deadline_risk_days,
+            ),
         )
         concerns: List[Dict[str, Any]] = []
         for r in rows:
@@ -241,14 +287,19 @@ class ConcernEngine:
     # ------------------------------------------------------------------
 
     def _rule_blocker(self, db: "SQLiteStore") -> List[Dict[str, Any]]:
-        """Open tasks labelled 'blocker' that have been open > ``blocker_open_days``."""
-        sql = """
+        """Open tasks labelled 'blocker' that have been open > ``blocker_open_days``.
+
+        Terminal statuses (``_DONE_STATUSES`` = Done/Closed/Resolved) are
+        excluded — a resolved blocker is no longer blocking.
+        """
+        placeholders = ",".join("?" for _ in _DONE_STATUSES)
+        sql = f"""
             SELECT e.task_id, e.assignee, e.status, e.updated_at,
                    julianday(?) - julianday(substr(e.updated_at, 1, 10)) AS days_open,
                    (SELECT COUNT(*) FROM backlinks b
                       WHERE b.target_entity_id = e.task_id) AS dependent_count
             FROM entities e
-            WHERE e.status != 'Done'
+            WHERE e.status NOT IN ({placeholders})
               AND e.labels IS NOT NULL AND json_valid(e.labels)
               AND EXISTS (
                   SELECT 1 FROM json_each(e.labels) je
@@ -258,7 +309,7 @@ class ConcernEngine:
               AND julianday(?) - julianday(substr(e.updated_at, 1, 10)) > ?
             ORDER BY dependent_count DESC, days_open DESC
         """
-        rows = db.run_query(sql, (self._ref, self._ref, self.blocker_open_days))
+        rows = db.run_query(sql, (self._ref, *_DONE_STATUSES, self._ref, self.blocker_open_days))
         concerns: List[Dict[str, Any]] = []
         for r in rows:
             if r["days_open"] is None:
@@ -288,64 +339,74 @@ class ConcernEngine:
         db: "SQLiteStore",
         chroma: "ChromaStore",
     ) -> List[Dict[str, Any]]:
-        """Jira says a task is completed recently, but a meeting note still says
-        pending/review.
+        """A meeting note still treats a task as live work, but Jira marks it done.
 
-        Step 1: SQL — recently-completed tasks (``Done``/``Closed``/``Resolved``
-                within ``conflict_window_h`` hours).
-        Step 2: For each, search meeting-note chunks for the task id.
-        Step 3: If a chunk mentions the task (exact key) AND a conflict keyword →
-                flag it (deterministic, no LLM). Step 4 (LLM phrasing) is left as
-                an optional future enhancement.
+        Meeting-driven (not task-driven): we scan the *small, bounded* set of
+        meeting chunks rather than issuing one semantic query per completed Jira
+        task — so the cost grows with meeting volume, not the Jira backlog.
+
+        For each meeting chunk:
+          1. The chunk must carry a "still-active" signal (``_CONFLICT_KEYWORDS``).
+          2. For every exact task key it mentions, look the task up in Jira; it is
+             a conflict only if Jira has it ``Done``/``Closed``/``Resolved``.
+          3. Temporal guard — the meeting must be dated **on/after** the Jira
+             completion. A meeting that *pre-dates* completion saying "pending" is
+             just stale history, not a live conflict; this replaces the old
+             fixed-hour window, which wrongly excluded tasks closed long ago and
+             still actively discussed (e.g. a "Closed" task a meeting re-opens).
+
+        Detection is deterministic (no LLM); LLM phrasing is an optional Step 4.
         """
-        # Step 1 — recently-completed candidates (Done/Closed/Resolved).
-        placeholders = ",".join("?" for _ in _DONE_STATUSES)
-        sql = f"""
-            SELECT task_id, assignee, status, updated_at
-            FROM entities
-            WHERE status IN ({placeholders})
-              AND updated_at IS NOT NULL
-              AND (julianday(?) - julianday(substr(updated_at, 1, 10))) >= 0
-              AND (julianday(?) - julianday(substr(updated_at, 1, 10))) * 24 <= ?
-        """
-        candidates = db.run_query(
-            sql, (*_DONE_STATUSES, self._ref, self._ref, self.conflict_window_h)
-        )
+        try:
+            chunks = chroma.get_all(_MEETING_COLLECTION)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("cross-source: could not load meeting chunks: %s", exc)
+            return []
 
         concerns: List[Dict[str, Any]] = []
-        for cand in candidates:
-            task_id = cand["task_id"]
+        flagged: set = set()  # one flag per task
 
-            # Step 2 — pull meeting chunks relevant to this task.
-            try:
-                hits = chroma.query(
-                    collection=_MEETING_COLLECTION, query_text=task_id, n_results=10
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("cross-source query failed for %s: %s", task_id, exc)
+        for chunk in chunks:
+            document = chunk.get("document") or ""
+            # 1 — chunk-level "still-active" signal.
+            if not any(kw in document.lower() for kw in _CONFLICT_KEYWORDS):
                 continue
 
-            # Step 3 — exact key + keyword match.
-            for hit in hits:
-                document = (hit.get("document") or "")
-                if not self._mentions_key(document, task_id):
-                    continue
-                if not any(kw in document.lower() for kw in _CONFLICT_KEYWORDS):
+            meta = chunk.get("metadata") or {}
+            meeting_date = str(meta.get("date") or "")[:10]
+            note_id = meta.get("note_id") or "meeting_notes"
+
+            for task_id in self._extract_keys(document):
+                if task_id in flagged:
                     continue
 
-                meta = hit.get("metadata") or {}
-                note_id = meta.get("note_id") or "meeting_notes"
+                entity = db.query_entity(task_id)
+                # 2 — must be a *completed* task in Jira to be a conflict.
+                if not entity or entity.get("status") not in _DONE_STATUSES:
+                    continue
+
+                # 3 — temporal guard: meeting on/after the Jira completion.
+                completed_on = str(entity.get("updated_at") or "")[:10]
+                if meeting_date and completed_on and meeting_date < completed_on:
+                    continue
+
                 severity, explanation = self.score_severity("cross_source_conflict")
                 concerns.append({
                     "type": "cross_source_conflict",
                     "task_id": task_id,
                     "severity": severity,
                     "explanation": explanation,
-                    "assignee": cand.get("assignee"),
+                    "assignee": entity.get("assignee"),
                     "source_ids": [task_id, note_id],
-                    "details": {"note_id": note_id, "evidence": document[:200]},
+                    "details": {
+                        "note_id": note_id,
+                        "meeting_date": meeting_date,
+                        "jira_status": entity.get("status"),
+                        "completed_on": completed_on,
+                        "evidence": document[:200],
+                    },
                 })
-                break  # one flag per task is enough
+                flagged.add(task_id)
 
         return concerns
 

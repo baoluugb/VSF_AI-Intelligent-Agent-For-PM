@@ -72,7 +72,11 @@ def init_db(db_path: PathLike = DEFAULT_DB_PATH) -> None:
 				ON entities(status);
 			CREATE INDEX IF NOT EXISTS idx_entities_updated_at
 				ON entities(updated_at);
-			CREATE INDEX IF NOT EXISTS idx_snapshots_task_id_snapshot_date
+			-- One snapshot per task per date. UNIQUE makes ``save_snapshot``'s
+			-- INSERT OR REPLACE idempotent (re-ingesting on the same day updates
+			-- the row instead of appending a duplicate) and keeps the
+			-- get_daily_diff self-join one-to-one.
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_task_id_snapshot_date
 				ON snapshots(task_id, snapshot_date);
 			"""
         )

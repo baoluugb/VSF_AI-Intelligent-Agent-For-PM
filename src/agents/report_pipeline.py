@@ -6,9 +6,12 @@ detections rather than free exploration); a deterministic fallback report is
 produced if the LLM call fails, and the result always passes through
 ``OutputSanitizer`` before being handed back to a caller.
 
-The report leads with a prioritised **"Priority Actions Today"** block (highest
-severity, excluding chronic backlog) plus a one-line risk-count summary, so a PM
-sees what to act on first. Language (vi/en) follows ``config.REPORT_LANG``.
+The report is organised around a PM's four daily questions — **Decisions Needed
+Today** (led by cross-source conflicts + blockers), **Blocked**, **Deadlines at
+Risk**, **Recent Changes** — under a one-line risk-count summary, with chronic
+backlog folded into a single count. Concerns are pre-bucketed by type per section
+(``bucket_by_type``) so the LLM fills anchored sections rather than re-classifying.
+Language (vi/en) follows ``config.REPORT_LANG``.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONCERNS_IN_PROMPT = 16
 _TOP_ACTIONABLE = 5
+_PER_SECTION = 8  # max concerns fed per question-section (the rest become "… and N more")
 
 # Human labels per concern type, per language, for the summary count line.
 _TYPE_LABELS = {
@@ -71,6 +75,20 @@ def select_diverse(concerns: List[Dict[str, Any]], per_type: int, cap: int) -> L
     return selected[:cap]
 
 
+def bucket_by_type(concerns: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Group severity-sorted concerns by type, one bucket per question-section.
+
+    The report restructure maps each concern type to a PM question: blockers →
+    "Blocked", deadlines → "Deadlines at Risk", conflicts lead "Decisions", and
+    stalled → the "Backlog" count. Pre-bucketing here keeps the LLM from having to
+    re-classify (deterministic-first), so each section is anchored to real rows.
+    """
+    buckets: Dict[str, List[Dict[str, Any]]] = {t: [] for t in _TYPE_ORDER}
+    for c in concerns:  # already severity-sorted
+        buckets.setdefault(c["type"], []).append(c)
+    return buckets
+
+
 def select_actionable(concerns: List[Dict[str, Any]], top_n: int) -> List[Dict[str, Any]]:
     """Top ``top_n`` highest-severity concerns, excluding chronic backlog — the
     "what's on fire today" set that leads the report."""
@@ -103,8 +121,10 @@ def format_summary(counts: Dict[str, int], chronic: int, lang: Optional[str] = N
 
 
 def format_concerns_for_prompt(selected: List[Dict[str, Any]], total: int) -> str:
+    # The task key is the ONLY bracketed token, so when the agent echoes a `[...]`
+    # citation it lands on the task id (e.g. ``[KAFKA-64]``) — not the concern type.
     lines = [
-        f"- [{c['type']}] {c['task_id']} — severity {c['severity']} — {c['explanation']}"
+        f"- [{c['task_id']}] ({c['type']}, severity {c['severity']}) — {c['explanation']}"
         for c in selected
     ]
     more = total - len(selected)
@@ -114,31 +134,54 @@ def format_concerns_for_prompt(selected: List[Dict[str, Any]], total: int) -> st
 
 
 def build_user_query(date_str: str, concerns: List[Dict[str, Any]], lang: Optional[str] = None) -> str:
+    """Build the grounding prompt, with concerns pre-bucketed per PM-question section.
+
+    Each section of the report maps to one of a PM's four daily questions, so we
+    feed the LLM a ready-made bucket per section (conflicts + top severity →
+    Decisions, blockers → Blocked, deadlines → Deadlines) rather than one flat
+    list it must re-classify.
+    """
     lang = lang or REPORT_LANG
     vi = _is_vi(lang)
-    actionable = select_actionable(concerns, _TOP_ACTIONABLE)
-    selected = select_diverse(concerns, per_type=4, cap=_MAX_CONCERNS_IN_PROMPT)
+    buckets = bucket_by_type(concerns)
     counts, chronic = summarize_counts(concerns)
     summary_line = format_summary(counts, chronic, lang)
-    top_block = format_concerns_for_prompt(actionable, len(actionable))
-    concern_block = format_concerns_for_prompt(selected, len(concerns))
+
+    actionable = select_actionable(concerns, _TOP_ACTIONABLE)
+    conflicts = buckets["cross_source_conflict"]
+    blockers = buckets["unresolved_blocker"]
+    deadlines = buckets["deadline_risk"]
+    stalled_total = len(buckets["stalled_task"])
+
+    decisions_block = format_concerns_for_prompt(actionable, len(actionable))
+    conflict_block = format_concerns_for_prompt(conflicts[:_PER_SECTION], len(conflicts))
+    blocked_block = format_concerns_for_prompt(blockers[:_PER_SECTION], len(blockers))
+    deadline_block = format_concerns_for_prompt(deadlines[:_PER_SECTION], len(deadlines))
+
     lang_name = "Vietnamese (Tiếng Việt)" if vi else "English"
-    prio_section = "Cần xử lý hôm nay" if vi else "Priority Actions Today"
+    s_dec = "Cần bạn quyết hôm nay" if vi else "Decisions Needed Today"
+    s_block = "Đang bị chặn" if vi else "Blocked"
+    s_dead = "Deadline nguy hiểm" if vi else "Deadlines at Risk"
+    s_chg = "Thay đổi gần đây" if vi else "Recent Changes"
+
     return (
         f"Generate the daily project intelligence report for {date_str}.\n\n"
-        f"RISK SUMMARY (counts, put as the first line of the report): {summary_line}\n\n"
-        f"TOP ACTIONABLE risks (highest severity, chronic backlog excluded) — these go "
-        f"in the '{prio_section}' section:\n{top_block}\n\n"
-        f"ALL notable risks (severity-sorted; {len(concerns)} total) for the Concerns section:\n"
-        f"{concern_block}\n\n"
+        f"RISK SUMMARY (put as the first line of the report, before the first heading): "
+        f"{summary_line}\n\n"
+        f"CROSS-SOURCE CONFLICTS (Jira disagrees with a meeting/doc — LEAD the "
+        f"'{s_dec}' section with these):\n{conflict_block}\n\n"
+        f"TOP DECISION-READY items for '{s_dec}' (highest severity, chronic excluded):\n"
+        f"{decisions_block}\n\n"
+        f"BLOCKED tasks for the '{s_block}' section:\n{blocked_block}\n\n"
+        f"DEADLINES at risk for the '{s_dead}' section (most urgent first):\n{deadline_block}\n\n"
+        f"BACKLOG: {stalled_total} stalled task(s) (incl. {chronic} chronic) — summarise "
+        f"as a single count, do not list each.\n\n"
         "Instructions:\n"
         f"- Write the ENTIRE report in {lang_name}.\n"
-        "- For the most severe items, use `query_sqlite` to confirm the current state and "
-        "`query_chroma` (source_filter='meeting_notes' or 'confluence') to add context, "
-        "citing [source_id].\n"
-        f"- Use `get_daily_diff` with date='{date_str}' for the changes section.\n"
-        "- Treat 'chronic' stalled items as low priority: summarise them as a count, "
-        "do not list each one.\n"
+        "- For the most severe items (especially conflicts), use `query_sqlite` to confirm "
+        "current state and `query_chroma` (source_filter='meeting_notes' or 'confluence') to "
+        "add context, citing [source_id].\n"
+        f"- Use `get_daily_diff` with date='{date_str}' for the '{s_chg}' section.\n"
         "- Keep it concise and cite [source_id] for every claim."
     )
 
@@ -149,57 +192,75 @@ def fallback_report(
     error: Exception,
     lang: Optional[str] = None,
 ) -> str:
-    """Deterministic report from the Concern Engine when the LLM is unavailable."""
+    """Deterministic report from the Concern Engine when the LLM is unavailable.
+
+    Mirrors the LLM report's PM-question structure (Decisions / Blocked / Deadlines
+    / Recent Changes / Backlog) so a fallback is structurally indistinguishable —
+    only the narrative prose and the live daily-diff are missing.
+    """
     vi = _is_vi(lang)
     actionable = select_actionable(concerns, _TOP_ACTIONABLE)
-    selected = select_diverse(concerns, per_type=5, cap=20)
+    buckets = bucket_by_type(concerns)
+    blockers = buckets["unresolved_blocker"][:_PER_SECTION]
+    deadlines = buckets["deadline_risk"][:_PER_SECTION]
+    stalled_total = len(buckets["stalled_task"])
     counts, chronic = summarize_counts(concerns)
     summary_line = format_summary(counts, chronic, lang)
 
     if vi:
         h = {
-            "prio": "## Cần xử lý hôm nay",
-            "ov": "## Tổng quan",
-            "ch": "## Thay đổi hôm nay",
-            "co": "## Rủi ro",
-            "na": "## Hành động tiếp theo",
+            "sum": "## Tóm tắt",
+            "dec": "## ⚡ Cần bạn quyết hôm nay",
+            "blk": "## 🚫 Đang bị chặn",
+            "dl": "## ⏰ Deadline nguy hiểm",
+            "chg": "## 🔄 Thay đổi gần đây",
+            "bk": "## 📋 Tồn đọng",
         }
         overview = (
             f"_Không tạo được phần tường thuật bằng LLM ({type(error).__name__}); đây là báo "
             f"cáo dự phòng sinh trực tiếp từ Concern Engine cho ngày {date_str}._"
         )
         changes = "_(Cần LLM agent; xem output/concerns.json để biết danh sách đầy đủ.)_"
-        next_actions = (
-            "- Ưu tiên xử lý các mục mức độ cao ở trên; chi tiết đầy đủ trong `output/concerns.json`."
-        )
+        none_txt = "- (Không có.)"
+        backlog = f"- {stalled_total} task trì trệ (trong đó {chronic} kinh niên) — xem `output/concerns.json`."
     else:
         h = {
-            "prio": "## Priority Actions Today",
-            "ov": "## Overview",
-            "ch": "## Changes Today",
-            "co": "## Concerns",
-            "na": "## Next Actions",
+            "sum": "## Summary",
+            "dec": "## ⚡ Decisions Needed Today",
+            "blk": "## 🚫 Blocked",
+            "dl": "## ⏰ Deadlines at Risk",
+            "chg": "## 🔄 Recent Changes",
+            "bk": "## 📋 Backlog",
         }
         overview = (
             f"_LLM narrative unavailable ({type(error).__name__}); this is a deterministic "
             f"fallback generated directly from the Concern Engine for {date_str}._"
         )
         changes = "_(Requires the LLM agent; see output/concerns.json for the full risk list.)_"
-        next_actions = "- Triage the highest-severity items above; full details in `output/concerns.json`."
+        none_txt = "- (None.)"
+        backlog = f"- {stalled_total} stalled task(s) (incl. {chronic} chronic) — see `output/concerns.json`."
 
-    lines = [h["prio"], summary_line, ""]
+    def _bullets(items: List[Dict[str, Any]]) -> List[str]:
+        if not items:
+            return [none_txt]
+        return [
+            f"- [{c['type']}] {c['task_id']} (severity {c['severity']}): "
+            f"{c['explanation']} [{c['task_id']}]"
+            for c in items
+        ]
+
+    lines = [summary_line, "", h["sum"], overview, "", h["dec"]]
     for i, c in enumerate(actionable, 1):
         lines.append(
             f"{i}. [{c['type']}] {c['task_id']} (severity {c['severity']}): "
             f"{c['explanation']} [{c['task_id']}]"
         )
-    lines += ["", h["ov"], overview, "", h["ch"], changes, "", h["co"]]
-    for c in selected:
-        lines.append(
-            f"- [{c['type']}] {c['task_id']} (severity {c['severity']}): "
-            f"{c['explanation']} [{c['task_id']}]"
-        )
-    lines += ["", h["na"], next_actions]
+    if not actionable:
+        lines.append(none_txt)
+    lines += ["", h["blk"], *_bullets(blockers)]
+    lines += ["", h["dl"], *_bullets(deadlines)]
+    lines += ["", h["chg"], changes]
+    lines += ["", h["bk"], backlog]
     return "\n".join(lines)
 
 

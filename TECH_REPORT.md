@@ -214,7 +214,9 @@ had missed:
 
 - **Cross-source recall:** generate Meeting Notes that reference the Jira
   cross-source anomalies so that rule has evidence to detect more than 1.
-- **Real day-over-day history:** run on a schedule so the diff uses genuine prior
-  snapshots instead of the demo seed.
+- **Scheduled daily runs:** the day-over-day diff now uses genuine accumulated
+  snapshots (the demo seed was removed; `get_daily_diff` compares against the most
+  recent prior snapshot). Wiring a scheduler to run daily would build up multi-day
+  history; a single run on the static dataset reports no changes (by design).
 - **Stalled precision at full prevalence:** measure V4 against all normals.
 - **Delivery:** push the daily report to where PMs work (email / Slack / Teams).

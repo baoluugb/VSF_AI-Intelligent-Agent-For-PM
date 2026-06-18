@@ -7,7 +7,7 @@ authors = ["Your Name <your.email@example.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = ">=3.10"
 openai = "*"
 chromadb = "*"
 langchain-text-splitters = "*"
@@ -32,5 +32,5 @@ pythonpath = ["."]
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py310']
 include = '\.pyi?$'

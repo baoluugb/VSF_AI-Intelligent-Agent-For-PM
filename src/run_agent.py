@@ -2,18 +2,22 @@
 
 Pipeline
 --------
-1. Rebuild the dual store from the 3 synthetic sources (``run_pipeline``).
+1. Ingest the 3 synthetic sources into the dual store (``run_pipeline``),
+   tagging this run's snapshots with ``--date``. Snapshots are written only for
+   entities that changed since the prior run (incremental), so the day-over-day
+   diff is real — empty on the first/baseline run or when nothing changed.
 2. Run the **Concern Engine** → ``output/concerns.json`` (deterministic, severity-sorted).
-3. Seed a prior-day snapshot for the top concern tasks so the **day-over-day diff**
-   has something to show (the system is designed to run daily; this simulates one
-   prior run so ``get_daily_diff`` is non-empty for the demo).
-4. Run the **Report Agent**, *grounded* with the top concerns, → ``output/report.md``
+3. Run the **Report Agent**, *grounded* with the top concerns, → ``output/report.md``
    (passed through ``OutputSanitizer`` to redact any leaked secrets).
+
+By default the stores **persist** between runs so snapshot history accumulates;
+pass ``--reset`` for a clean baseline (what ``run_agent.sh`` does).
 
 Usage::
 
-    python src/run_agent.py --date 2025-05-30
-    python src/run_agent.py --date 2025-05-30 --skip-ingest   # reuse existing stores
+    python src/run_agent.py --date 2025-05-30 --reset       # clean baseline
+    python src/run_agent.py --date 2025-05-31                # next day, accumulates
+    python src/run_agent.py --date 2025-05-30 --skip-ingest  # reuse existing stores
 """
 from __future__ import annotations
 
@@ -21,6 +25,9 @@ import os
 import sys
 
 # --- Make the module runnable from any entry point --------------------------
+# This MUST run before the local imports below: they (transitively) do
+# ``from config import ...`` and ``config.py`` lives at the repo root, so the
+# repo root has to be on sys.path *before* those imports are evaluated.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))   # .../src
 _ROOT_DIR = os.path.dirname(_THIS_DIR)                    # repo root
 for _p in (_ROOT_DIR, _THIS_DIR):
@@ -30,85 +37,42 @@ for _p in (_ROOT_DIR, _THIS_DIR):
 import argparse
 import json
 import logging
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List
+import shutil
+from typing import Any, Dict
 
-from config import CHROMA_PATH, DB_PATH
-from agents.concern_engine import ConcernEngine
-from agents.report_pipeline import generate_grounded_report
+from exporters import export_report_to_docx, export_concerns_to_excel
+from storage.sqlite_store import SQLiteStore
+from storage.chroma_store import ChromaStore
 from ingestion.run_pipeline import (
     DEFAULT_CONFLUENCE_PATH,
     DEFAULT_JIRA_PATH,
     DEFAULT_MEETING_NOTES_PATH,
     run_pipeline,
 )
-from storage.chroma_store import ChromaStore
-from storage.sqlite_store import SQLiteStore
-from exporters import export_report_to_docx, export_concerns_to_excel
+from agents.report_pipeline import generate_grounded_report
+from agents.concern_engine import ConcernEngine
+from config import CHROMA_PATH, DB_PATH
+
 
 logger = logging.getLogger(__name__)
-
-# Plausible "previous day" status for the seeded day-over-day diff.
-_PRIOR_STATUS = {
-    "Done": "In Progress",
-    "In Progress": "To Do",
-    "In Review": "In Progress",
-    "Blocked": "In Progress",
-    "Resolved": "In Progress",
-    "Closed": "In Review",
-}
-_MAX_SEED_CHANGES = 6
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _seed_prior_snapshots(
-    store: SQLiteStore, concerns: List[Dict[str, Any]], ref_date: str
-) -> int:
-    """Seed yesterday+today snapshots for a few concern tasks so the diff is non-empty.
+def _reset_stores(db_path: str, chroma_path: str) -> None:
+    """Delete the dual store for a clean baseline run (``--reset``).
 
-    Picks up to ``_MAX_SEED_CHANGES`` concern tasks whose current status has a
-    plausible earlier value, writes a "yesterday" snapshot with that earlier
-    status and a "today" snapshot with the real status. ``get_daily_diff(ref_date)``
-    will then surface exactly those transitions.
+    Replaces the manual ``rm`` that ``run_agent.sh`` used to do, so the reset is
+    opt-in and lives next to the code that depends on it. Without ``--reset`` the
+    stores persist across runs, accumulating snapshot history for the diff.
     """
-    yesterday = (datetime.strptime(ref_date, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
-
-    # Idempotent: clear any prior demo snapshots for these two dates so repeated
-    # --skip-ingest runs don't accumulate duplicate diff rows.
-    conn = store._ensure_connection()
-    conn.execute("DELETE FROM snapshots WHERE snapshot_date IN (?, ?)", (ref_date, yesterday))
-    conn.commit()
-
-    seeded = 0
-    seen: set = set()
-    for concern in concerns:
-        if seeded >= _MAX_SEED_CHANGES:
-            break
-        task_id = concern["task_id"]
-        if task_id in seen:
-            continue
-        seen.add(task_id)
-
-        entity = store.query_entity(task_id)
-        if not entity:
-            continue
-        today_status = entity.get("status") or ""
-        prior_status = _PRIOR_STATUS.get(today_status)
-        if not prior_status:
-            continue  # no meaningful transition to show
-
-        assignee = entity.get("assignee")
-        store.save_snapshot(
-            task_id, {"status": prior_status, "assignee": assignee}, None, snapshot_date=yesterday
-        )
-        store.save_snapshot(
-            task_id, {"status": today_status, "assignee": assignee}, None, snapshot_date=ref_date
-        )
-        seeded += 1
-    return seeded
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    if os.path.isdir(chroma_path):
+        shutil.rmtree(chroma_path)
+    logger.info("Reset stores: removed %s and %s", db_path, chroma_path)
 
 
 # ---------------------------------------------------------------------------
@@ -125,15 +89,22 @@ def run(
     chroma_path: str = CHROMA_PATH,
     output_dir: str = "output",
     skip_ingest: bool = False,
+    reset: bool = False,
 ) -> Dict[str, Any]:
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1. Ingest -------------------------------------------------------------
+    # 0. Optional clean baseline -------------------------------------------
+    if reset and not skip_ingest:
+        _reset_stores(db_path, chroma_path)
+
+    # 1. Ingest (incremental: snapshots tagged with date_str) ---------------
     if skip_ingest:
         logger.info("Skipping ingestion (reusing existing stores).")
     else:
-        logger.info("Ingesting sources into %s / %s ...", db_path, chroma_path)
-        run_pipeline(jira_path, conf_path, notes_path, db_path=db_path, chroma_path=chroma_path)
+        logger.info("Ingesting sources into %s / %s (as_of=%s) ...",
+                    db_path, chroma_path, date_str)
+        run_pipeline(jira_path, conf_path, notes_path, db_path=db_path,
+                     chroma_path=chroma_path, as_of=date_str)
 
     # 2. Concern Engine -> concerns.json ------------------------------------
     chroma = ChromaStore(path=chroma_path)
@@ -145,11 +116,10 @@ def run(
             json.dump(concerns, fh, ensure_ascii=False, indent=2)
         logger.info("Wrote %d concern(s) -> %s", len(concerns), concerns_path)
 
-        # 3. Seed day-over-day history for the diff -------------------------
-        seeded = _seed_prior_snapshots(store, concerns, date_str)
-        logger.info("Seeded %d prior-day snapshot transition(s) for the diff.", seeded)
-
-        # 4. Grounded Report Agent -> report.md -----------------------------
+        # 3. Grounded Report Agent -> report.md -----------------------------
+        # The "Recent Changes" section is a real day-over-day diff (get_daily_diff
+        # over the accumulated snapshots) — empty when nothing changed since the
+        # prior run.
         logger.info("Running Report Agent (grounded with %d concerns)...", len(concerns))
         report = generate_grounded_report(date_str, concerns, store, chroma)
 
@@ -179,7 +149,6 @@ def run(
     return {
         "date": date_str,
         "concerns": len(concerns),
-        "seeded_changes": seeded,
         "report_path": report_path,
         "concerns_path": concerns_path,
         "report_docx_path": report_docx_path,
@@ -188,14 +157,22 @@ def run(
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     parser = argparse.ArgumentParser(description="Run the full agent demo end-to-end.")
-    parser.add_argument("--date", default="2025-05-30", help="Reference (as-of) ISO date")
+    parser.add_argument("--date", default="2025-05-30",
+                        help="Reference (as-of) ISO date")
     parser.add_argument("--db-path", default=DB_PATH)
     parser.add_argument("--chroma-path", default=CHROMA_PATH)
     parser.add_argument("--output-dir", default="output")
-    parser.add_argument("--skip-ingest", action="store_true", help="Reuse existing stores (fast iteration)")
+    parser.add_argument("--skip-ingest", action="store_true",
+                        help="Reuse existing stores (fast iteration)")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Wipe the stores for a clean baseline before ingesting (omit to accumulate snapshot history)",
+    )
     args = parser.parse_args()
 
     from config import validate_config
@@ -207,11 +184,11 @@ def main() -> None:
         chroma_path=args.chroma_path,
         output_dir=args.output_dir,
         skip_ingest=args.skip_ingest,
+        reset=args.reset,
     )
     print("\n=== Demo complete ===")
     print(f"  date            : {stats['date']}")
     print(f"  concerns        : {stats['concerns']}  -> {stats['concerns_path']}")
-    print(f"  seeded changes  : {stats['seeded_changes']}")
     print(f"  report          : {stats['report_path']}")
     if stats.get("report_docx_path"):
         print(f"  report (word)   : {stats['report_docx_path']}")

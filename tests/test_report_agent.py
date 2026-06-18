@@ -168,10 +168,10 @@ class TestReportAgentReActLoop:
 
         # An honest model, given an empty result, declines to invent anything.
         honest_answer = (
-            "## Overview\n(No verified data found.)\n\n"
-            "## Changes Today\n(No verified data found.)\n\n"
-            "## Concerns\n(No verified data found.)\n\n"
-            "## Next Actions\n(No verified data found.)"
+            "## Summary\n(No verified data found.)\n\n"
+            "## ⚡ Decisions Needed Today\n(No verified data found.)\n\n"
+            "## 🔄 Recent Changes\n(No verified data found.)\n\n"
+            "## 📋 Backlog\n(No verified data found.)"
         )
 
         captured_tool_msgs = []
@@ -215,8 +215,15 @@ class TestReportAgentReActLoop:
         # Anti-hallucination instruction is present.
         assert "No verified data found" in SYSTEM_PROMPT
         assert "HALLUCINAT" in SYSTEM_PROMPT.upper()
-        # All four required report sections are specified.
-        for section in ("## Overview", "## Changes Today", "## Concerns", "## Next Actions"):
+        # The PM-question report sections are specified, in the contract.
+        for section in (
+            "## Summary",
+            "## ⚡ Decisions Needed Today",
+            "## 🚫 Blocked",
+            "## ⏰ Deadlines at Risk",
+            "## 🔄 Recent Changes",
+            "## 📋 Backlog",
+        ):
             assert section in SYSTEM_PROMPT
 
 

@@ -110,15 +110,19 @@ class ChromaStore:
             "linked_jira_epics": ",".join(str(e) for e in epics),
         }
 
+        page_id = base_meta["page_id"]
         ids, texts, metadatas = [], [], []
-        for doc in docs:
+        for i, doc in enumerate(docs):
             section = doc.metadata.get("section") or doc.metadata.get("subsection") or ""
             meta = {**base_meta, "section": str(section)}
-            ids.append(str(uuid.uuid4()))
+            # Deterministic id (``page_id:index``) + upsert makes re-ingestion
+            # idempotent: a repeated ingest overwrites the same chunk instead of
+            # appending a duplicate (the MCP /ingest path doesn't reset the store).
+            ids.append(f"{page_id}:{i}" if page_id else str(uuid.uuid4()))
             texts.append(doc.page_content)
             metadatas.append(meta)
 
-        self._confluence.add(ids=ids, documents=texts, metadatas=metadatas)
+        self._confluence.upsert(ids=ids, documents=texts, metadatas=metadatas)
         return len(ids)
 
     def add_meeting_chunks(self, note: Dict[str, Any]) -> int:
@@ -156,10 +160,15 @@ class ChromaStore:
             "project": str(note.get("project") or ""),
         }
 
-        ids = [str(uuid.uuid4()) for _ in chunks]
+        # Deterministic id (``note_id:index``) + upsert makes re-ingestion
+        # idempotent (see ``add_confluence_chunks``).
+        ids = [
+            f"{note_id}:{i}" if note_id else str(uuid.uuid4())
+            for i in range(len(chunks))
+        ]
         metadatas = [meta for _ in chunks]
 
-        self._meeting.add(ids=ids, documents=chunks, metadatas=metadatas)
+        self._meeting.upsert(ids=ids, documents=chunks, metadatas=metadatas)
         return len(ids)
 
     def add_jira_description(self, entity: Dict[str, Any]) -> None:
@@ -247,4 +256,34 @@ class ChromaStore:
         return [
             {"document": doc, "metadata": meta, "distance": dist}
             for doc, meta, dist in zip(documents, metadatas, distances)
+        ]
+
+    def get_all(self, collection: str) -> List[Dict[str, Any]]:
+        """Return *every* chunk in a collection (no semantic ranking).
+
+        Used by the cross-source rule, which scans the (small, bounded) set of
+        meeting chunks rather than issuing one semantic query per completed Jira
+        task — so its cost grows with meeting volume, not with the Jira backlog.
+
+        Returns a list of ``{"document", "metadata"}`` dicts.
+
+        Raises
+        ------
+        KeyError
+            If *collection* is not one of the three managed collections.
+        """
+        col = self._collections.get(collection)
+        if col is None:
+            raise KeyError(
+                f"Unknown collection {collection!r}. "
+                f"Choose from: {list(self._collections.keys())}"
+            )
+
+        results = col.get(include=["documents", "metadatas"])
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+
+        return [
+            {"document": doc, "metadata": meta}
+            for doc, meta in zip(documents, metadatas)
         ]

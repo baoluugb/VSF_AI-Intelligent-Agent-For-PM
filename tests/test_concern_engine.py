@@ -154,6 +154,60 @@ def test_blocker_rule(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Terminal-status exclusion — deadline/blocker must treat Closed/Resolved as done
+# (regression: those rules used to filter only 'Done', leaking closed tasks)
+# ---------------------------------------------------------------------------
+
+def _entity(source_id, status, **over):
+    base = {
+        "source": "jira", "source_id": source_id, "status": status,
+        "title": "t", "assignee": "X", "priority": "High", "labels": [],
+        "due_date": None, "description": "", "url": None,
+        "created_at": "2025-05-01T00:00:00.000+0000",
+        "updated_at": "2025-05-20T00:00:00.000+0000",
+    }
+    base.update(over)
+    return base
+
+
+def test_deadline_rule_excludes_terminal_statuses(tmp_path):
+    """A Closed/Resolved task with a near due date is NOT a deadline risk —
+    only Done used to be excluded, leaking the 170 closed-with-duedate tasks."""
+    ents = [
+        _entity("PROJ-OPEN", "In Progress", due_date=AS_OF),  # active, near deadline
+        _entity("PROJ-CLOSED", "Closed", due_date=AS_OF),
+        _entity("PROJ-RESOLVED", "Resolved", due_date=AS_OF),
+        _entity("PROJ-DONE", "Done", due_date=AS_OF),
+    ]
+    db = str(tmp_path / "dl.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert(ents)
+        flagged = {c["task_id"] for c in ConcernEngine(as_of=AS_OF)._rule_deadline_risk(store)}
+
+    assert "PROJ-OPEN" in flagged
+    assert flagged.isdisjoint({"PROJ-CLOSED", "PROJ-RESOLVED", "PROJ-DONE"})
+
+
+def test_blocker_rule_excludes_terminal_statuses(tmp_path):
+    """A Closed/Resolved task still carrying the 'blocker' label is NOT an
+    unresolved blocker (a resolved blocker no longer blocks)."""
+    ents = [
+        _entity("BLK-OPEN", "Blocked", labels=["blocker"]),
+        _entity("BLK-CLOSED", "Closed", labels=["blocker"]),
+        _entity("BLK-RESOLVED", "Resolved", labels=["blocker"]),
+    ]
+    db = str(tmp_path / "blk.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert(ents)
+        flagged = {c["task_id"] for c in ConcernEngine(as_of=AS_OF)._rule_blocker(store)}
+
+    assert "BLK-OPEN" in flagged
+    assert flagged.isdisjoint({"BLK-CLOSED", "BLK-RESOLVED"})
+
+
+# ---------------------------------------------------------------------------
 # Stalled tiering (needs-review vs chronic backlog)
 # ---------------------------------------------------------------------------
 
@@ -253,6 +307,90 @@ def test_cross_source_accepts_closed_resolved_and_exact_match(tmp_path):
 
     assert {"PROJ-1", "PROJ-2", "PROJ-3"} <= flagged   # B1: all terminal statuses
     assert "PROJ-5" not in flagged                      # B2: no substring false-positive
+
+
+def test_cross_source_expanded_signals_catch_active_language(tmp_path):
+    """A 'Closed' task a meeting says to re-open (no pending/review wording) must
+    still be flagged — the conflict signal is 'still active despite Jira done'."""
+    ent = {
+        "source": "jira", "title": "t", "assignee": "X", "priority": "High",
+        "labels": [], "due_date": None, "description": "", "url": None,
+        "created_at": "2025-04-01T00:00:00.000+0000",
+        "updated_at": "2025-04-16T00:00:00.000+0000",   # closed long ago
+        "source_id": "FLINK-1", "status": "Closed",
+    }
+    db = str(tmp_path / "cs.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert([ent])
+        chroma = ChromaStore(client=chromadb.EphemeralClient())
+        chroma.add_meeting_chunks({
+            "note_id": "MTG-CROSS", "date": "2025-05-27", "project": "FLINK",
+            "content": "Re-open FLINK-1 as the integration tests are still failing. "
+                       "It was accidentally marked as Closed in Jira.",
+        })
+        flagged = {
+            c["task_id"]
+            for c in ConcernEngine(as_of=AS_OF)._rule_cross_source_conflict(store, chroma)
+        }
+    # No 'pending'/'review' here, and the close is 6 weeks before the meeting — the
+    # old fixed-hour window would have missed it; the temporal guard admits it.
+    assert flagged == {"FLINK-1"}
+
+
+def test_cross_source_temporal_guard_skips_pre_completion_meeting(tmp_path):
+    """A meeting that PRE-dates the Jira completion is stale history, not a live
+    conflict — it must NOT be flagged even though it says 'pending'."""
+    ent = {
+        "source": "jira", "title": "t", "assignee": "X", "priority": "High",
+        "labels": [], "due_date": None, "description": "", "url": None,
+        "created_at": "2025-05-01T00:00:00.000+0000",
+        "updated_at": "2025-05-20T00:00:00.000+0000",   # completed on the 20th
+        "source_id": "PROJ-9", "status": "Done",
+    }
+    db = str(tmp_path / "cs.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert([ent])
+        chroma = ChromaStore(client=chromadb.EphemeralClient())
+        chroma.add_meeting_chunks({
+            "note_id": "MTG-OLD", "date": "2025-05-10", "project": "PROJ",
+            "content": "PROJ-9 is still pending review.",   # meeting BEFORE completion
+        })
+        flagged = {
+            c["task_id"]
+            for c in ConcernEngine(as_of=AS_OF)._rule_cross_source_conflict(store, chroma)
+        }
+    assert flagged == set()
+
+
+def test_cross_source_detects_planted_conflicts_on_real_data(tmp_path):
+    """Regression on the real synthetic data: the rule must surface EXACTLY the two
+    planted cross-source conflicts (FLINK-1, AIP-30) — no more, no less.
+
+    This is the benchmark for this rule: FLINK-1 is 'Closed' in Jira but a meeting
+    re-opens it; AIP-30 is 'Done' but a later meeting says the PR is still pending.
+    """
+    issues = _load_issues()
+    entities = [_to_entity(it) for it in issues]
+    notes = json.loads(
+        (Path(__file__).resolve().parents[1] / "data" / "meeting_notes"
+         / "meeting_notes.json").read_text(encoding="utf-8")
+    )["meetings"]
+
+    db = str(tmp_path / "real.db")
+    init_db(db)
+    with SQLiteStore(db_path=db) as store:
+        store.bulk_upsert(entities)
+        chroma = ChromaStore(client=chromadb.EphemeralClient())
+        for note in notes:
+            chroma.add_meeting_chunks(note)
+        flagged = {
+            c["task_id"]
+            for c in ConcernEngine(as_of=AS_OF)._rule_cross_source_conflict(store, chroma)
+        }
+
+    assert flagged == {"FLINK-1", "AIP-30"}
 
 
 # ---------------------------------------------------------------------------

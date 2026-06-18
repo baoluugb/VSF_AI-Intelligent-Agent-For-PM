@@ -36,6 +36,7 @@ for _p in (_ROOT_DIR, _SRC_DIR):
 
 import argparse
 import logging
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from config import CHROMA_PATH, DB_PATH
@@ -46,7 +47,7 @@ from ingestion.jira_connector import JiraConnector
 from ingestion.meeting_notes_connector import MeetingNotesConnector
 from storage.chroma_store import ChromaStore
 from storage.init_db import init_db
-from storage.sqlite_store import SQLiteStore
+from storage.sqlite_store import SQLiteStore, meaningful_fields
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ def run_pipeline(
     db_path: str = DB_PATH,
     chroma_path: str = CHROMA_PATH,
     sanitizer: Optional[InputSanitizer] = None,
+    as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run ingestion across the provided sources and route into both stores.
 
@@ -120,13 +122,18 @@ def run_pipeline(
         long-form Confluence/meeting content keeps chunking normally);
         ``None`` (the default) preserves the original ingest-everything
         behaviour used by ``run_agent.sh`` and the test suite.
+    as_of:
+        Reference ISO date (YYYY-MM-DD) tagging this run's snapshots. Defaults
+        to today. Snapshots are written **only for entities that changed** since
+        the prior baseline (incremental), so ``get_daily_diff(as_of)`` surfaces
+        real day-over-day changes without re-snapshotting unchanged tasks.
 
     Returns
     -------
     dict
-        Summary stats: ``documents``, ``entities``, ``backlinks``,
-        ``jira_docs``, ``confluence_chunks``, ``meeting_chunks``, ``sources``,
-        ``flagged_injections``.
+        Summary stats: ``documents``, ``entities``, ``entities_changed``,
+        ``backlinks``, ``jira_docs``, ``confluence_chunks``, ``meeting_chunks``,
+        ``sources``, ``flagged_injections``.
     """
     logger.info("Initializing database at %s", db_path)
     init_db(db_path)
@@ -165,20 +172,42 @@ def run_pipeline(
 
     # 3. Route structured data into SQLite ----------------------------------
     sources = sorted({doc["source"] for doc in all_docs if doc.get("source")})
+    snapshot_date = as_of or date.today().isoformat()
+    entities_changed = 0
     with SQLiteStore(db_path=db_path) as sqlite_store:
+        # Capture the prior baseline BEFORE upserting so we can snapshot only the
+        # entities that actually changed (incremental / delta-only snapshots).
+        prior_states = sqlite_store.load_current_states()
         sqlite_store.bulk_upsert(entities)
 
-        # One snapshot per entity for today's date (powers get_daily_diff).
         for entity in entities:
             task_id = entity.get("task_id") or entity.get("source_id")
-            if task_id:
-                sqlite_store.save_snapshot(task_id, entity, None)
+            if not task_id:
+                continue
+            new_state = meaningful_fields(entity)
+            old_state = prior_states.get(task_id)
+            if old_state is None:
+                # New / first-seen task → baseline snapshot (no prior to diff).
+                sqlite_store.save_snapshot(task_id, entity, None, snapshot_date=snapshot_date)
+                entities_changed += 1
+            elif old_state != new_state:
+                diff = {
+                    k: [old_state.get(k), new_state.get(k)]
+                    for k in new_state
+                    if old_state.get(k) != new_state.get(k)
+                }
+                sqlite_store.save_snapshot(task_id, entity, diff, snapshot_date=snapshot_date)
+                entities_changed += 1
+            # else: unchanged → skip (no snapshot, no reprocessing).
 
-        sqlite_store.insert_backlinks(backlinks)
+        # Backlinks are fully derived from the current docs → replace, don't append.
+        sqlite_store.replace_backlinks(backlinks)
         for source in sources:
             sqlite_store.update_sync_log(source)
-    logger.info("SQLite: upserted %d entities, %d backlinks, sync_log for %s.",
-                len(entities), len(backlinks), sources)
+    logger.info(
+        "SQLite: upserted %d entities (%d changed @ %s), %d backlinks, sync_log for %s.",
+        len(entities), entities_changed, snapshot_date, len(backlinks), sources,
+    )
 
     # 4. Route semantic data into ChromaDB ----------------------------------
     chroma_store = ChromaStore(path=chroma_path)
@@ -203,6 +232,7 @@ def run_pipeline(
     return {
         "documents": len(all_docs),
         "entities": len(entities),
+        "entities_changed": entities_changed,
         "backlinks": len(backlinks),
         "jira_docs": jira_docs,
         "confluence_chunks": confluence_chunks,

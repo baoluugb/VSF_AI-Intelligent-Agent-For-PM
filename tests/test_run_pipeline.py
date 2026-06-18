@@ -21,6 +21,7 @@ from ingestion.run_pipeline import (
     _meeting_to_chroma,
 )
 from storage.chroma_store import ChromaStore
+from storage.sqlite_store import SQLiteStore
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +269,99 @@ def test_run_pipeline_with_no_sources_is_a_noop(tmp_path):
     assert stats["documents"] == 0
     assert stats["entities"] == 0
     assert stats["sources"] == []
+
+
+# ---------------------------------------------------------------------------
+# Idempotent re-ingest — the MCP /ingest path reuses the stores without a reset
+# ---------------------------------------------------------------------------
+
+def test_reingest_is_idempotent(tmp_path):
+    """Running ingest twice on the SAME stores must not accumulate duplicates:
+    deterministic Chroma chunk ids (upsert) and the UNIQUE(task_id, snapshot_date)
+    snapshot index keep store contents stable. Guards the MCP `/ingest` path,
+    which (unlike `run_agent.sh`) does not delete the store between runs."""
+    jira_path = tmp_path / "jira.json"
+    jira_path.write_text(json.dumps(_JIRA_PAYLOAD), encoding="utf-8")
+    conf_dir = tmp_path / "confluence"; conf_dir.mkdir()
+    (conf_dir / "pages.json").write_text(json.dumps(_CONFLUENCE_PAYLOAD), encoding="utf-8")
+    notes_dir = tmp_path / "meeting"; notes_dir.mkdir()
+    (notes_dir / "notes.json").write_text(json.dumps(_MEETING_PAYLOAD), encoding="utf-8")
+
+    db_path = str(tmp_path / "vault.db")
+    chroma_path = str(tmp_path / "chroma")
+
+    def _run():
+        return run_pipeline(
+            str(jira_path), str(conf_dir), str(notes_dir),
+            db_path=db_path, chroma_path=chroma_path,
+        )
+
+    first = _run()
+    _run()  # second ingest onto the same, un-reset stores
+
+    # Chroma: total stored chunks equal a single run's output (no duplication).
+    store = ChromaStore(path=chroma_path)
+    assert len(_get_all(store._confluence)) == first["confluence_chunks"]
+    assert len(_get_all(store._meeting)) == first["meeting_chunks"]
+    assert len(_get_all(store._jira)) == 1
+
+    # SQLite: still exactly one snapshot per task for the day.
+    conn = sqlite3.connect(db_path)
+    snaps = conn.execute(
+        "SELECT COUNT(*) FROM snapshots WHERE task_id = 'AIP-1'"
+    ).fetchone()[0]
+    conn.close()
+    assert snaps == 1, "re-ingest must not duplicate the per-day snapshot"
+
+
+# ---------------------------------------------------------------------------
+# Incremental day-over-day diff — baseline then a real change
+# ---------------------------------------------------------------------------
+
+def test_incremental_diff_surfaces_real_changes(tmp_path):
+    """Ingest a baseline at D-1, then a genuine status change at D into the SAME
+    store → get_daily_diff(D) surfaces exactly the changed task (delta-only
+    snapshots tagged by as_of + meaningful-field diff). No fake seeding."""
+    jira = tmp_path / "jira.json"
+    db = str(tmp_path / "vault.db")
+    chroma = str(tmp_path / "chroma")
+
+    # Baseline @ 2025-05-29
+    jira.write_text(json.dumps(_JIRA_PAYLOAD), encoding="utf-8")
+    run_pipeline(str(jira), None, None, db_path=db, chroma_path=chroma, as_of="2025-05-29")
+
+    # AIP-1 transitions In Progress → Done; re-ingest @ 2025-05-30.
+    mutated = json.loads(json.dumps(_JIRA_PAYLOAD))
+    mutated["issues"][0]["fields"]["status"]["name"] = "Done"
+    mutated["issues"][0]["fields"]["updated"] = "2025-05-30T09:00:00.000+0000"
+    jira.write_text(json.dumps(mutated), encoding="utf-8")
+    stats = run_pipeline(str(jira), None, None, db_path=db, chroma_path=chroma, as_of="2025-05-30")
+
+    assert stats["entities_changed"] == 1
+
+    with SQLiteStore(db_path=db) as store:
+        diff = store.get_daily_diff("2025-05-30")
+
+    assert len(diff) == 1, "only the one changed task should surface"
+    assert diff[0]["task_id"] == "AIP-1"
+    assert diff[0]["previous_date"] == "2025-05-29"
+    assert diff[0]["changes"]["status"] == ["In Progress", "Done"]
+
+
+def test_unchanged_reingest_produces_no_diff(tmp_path):
+    """Re-ingesting identical data at a later date writes no new snapshots, so the
+    diff is honestly empty (the demo's single static dataset behaves this way)."""
+    jira = tmp_path / "jira.json"
+    db = str(tmp_path / "vault.db")
+    chroma = str(tmp_path / "chroma")
+    jira.write_text(json.dumps(_JIRA_PAYLOAD), encoding="utf-8")
+
+    run_pipeline(str(jira), None, None, db_path=db, chroma_path=chroma, as_of="2025-05-29")
+    stats = run_pipeline(str(jira), None, None, db_path=db, chroma_path=chroma, as_of="2025-05-30")
+
+    assert stats["entities_changed"] == 0
+    with SQLiteStore(db_path=db) as store:
+        assert store.get_daily_diff("2025-05-30") == []
 
 
 if __name__ == "__main__":

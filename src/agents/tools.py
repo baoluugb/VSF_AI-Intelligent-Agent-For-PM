@@ -14,7 +14,9 @@ tool name returns ``{"error": "Unknown tool"}`` instead of raising.
 """
 from __future__ import annotations
 
+import calendar
 import logging
+from datetime import date as _date, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:  # avoid hard runtime import coupling / sys.path surprises
@@ -29,6 +31,27 @@ _DEFAULT_N_RESULTS = 5
 # ChromaDB collection names (mirrors storage.chroma_store).
 _COLLECTION_CONFLUENCE = "confluence_chunks"
 _COLLECTION_MEETING = "meeting_chunks"
+
+# Lookback periods (in calendar months) for get_tasks_changed_since.
+_PERIOD_MONTHS = {"month": 1, "quarter": 3, "year": 12}
+
+
+def _cutoff_date(ref_date: str, period: str) -> str:
+    """Compute the lookback cutoff date from the report date, deterministically.
+
+    Date arithmetic lives here (not in the LLM, which is unreliable at it): the
+    model only picks a ``period`` word; the code turns it into a concrete ISO
+    date relative to ``ref_date`` (clamping the day to the target month length).
+    """
+    d = _date.fromisoformat(ref_date)
+    if period == "week":
+        return (d - timedelta(weeks=1)).isoformat()
+    months = _PERIOD_MONTHS.get(period, 1)
+    idx = (d.year * 12 + (d.month - 1)) - months
+    y, m = divmod(idx, 12)
+    m += 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return _date(y, m, day).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +137,33 @@ TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tasks_changed_since",
+            "description": (
+                "Net comparison over a LONGER horizon: how tasks differ NOW versus a point "
+                "in the past — last week, month, quarter, or year. Use this when the user asks "
+                "things like 'what's different about the tasks compared to last month / last year'. "
+                "Returns each changed task with its old→new field values (status, assignee, "
+                "due_date, priority); `is_new` marks tasks created since then."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "period": {
+                        "type": "string",
+                        "enum": ["week", "month", "quarter", "year"],
+                        "description": "How far back to compare against, relative to the report date. Defaults to 'month'.",
+                    },
+                    "since_date": {
+                        "type": "string",
+                        "description": "Optional explicit ISO date (YYYY-MM-DD) to compare against; overrides `period`.",
+                    },
+                },
+            },
+        },
+    },
 ]
 
 
@@ -126,19 +176,25 @@ def dispatch_tool(
     args: Dict[str, Any],
     sqlite_store: "SQLiteStore",
     chroma_store: "ChromaStore",
+    ref_date: str | None = None,
 ) -> Dict[str, Any]:
     """Execute the tool *name* and return its ``{"result", "source_ids"}`` envelope.
 
     Parameters
     ----------
     name:
-        One of ``"query_chroma"``, ``"query_sqlite"``, ``"get_daily_diff"``.
+        One of ``"query_chroma"``, ``"query_sqlite"``, ``"get_daily_diff"``,
+        ``"get_tasks_changed_since"``.
     args:
         Parsed arguments dict (typically ``json.loads(tool_call.function.arguments)``).
     sqlite_store:
         An open :class:`storage.sqlite_store.SQLiteStore`.
     chroma_store:
         An open :class:`storage.chroma_store.ChromaStore`.
+    ref_date:
+        The report's reference ("today") ISO date, used by
+        ``get_tasks_changed_since`` to resolve a relative ``period`` into a
+        concrete cutoff date.
 
     Returns
     -------
@@ -154,6 +210,8 @@ def dispatch_tool(
         return _query_sqlite(args, sqlite_store)
     if name == "get_daily_diff":
         return _get_daily_diff(args, sqlite_store)
+    if name == "get_tasks_changed_since":
+        return _get_tasks_changed_since(args, sqlite_store, ref_date)
 
     logger.warning("Unknown tool requested: %r", name)
     return {"error": "Unknown tool"}
@@ -275,6 +333,26 @@ def _get_daily_diff(args: Dict[str, Any], sqlite_store: "SQLiteStore") -> Dict[s
 
     source_ids = _unique([r.get("task_id") for r in enriched if r.get("task_id")])
     return {"result": enriched, "source_ids": source_ids}
+
+
+def _get_tasks_changed_since(
+    args: Dict[str, Any], sqlite_store: "SQLiteStore", ref_date: str | None
+) -> Dict[str, Any]:
+    """Net diff of the current state vs. a point in the past (week/month/quarter/year).
+
+    The cutoff is resolved deterministically from ``ref_date`` + ``period`` (or an
+    explicit ``since_date``) — see :func:`_cutoff_date` — then handed to
+    ``SQLiteStore.diff_since``.
+    """
+    since = args.get("since_date")
+    if not since:
+        period = args.get("period") or "month"
+        base = ref_date or _date.today().isoformat()
+        since = _cutoff_date(base, period)
+
+    rows = sqlite_store.diff_since(since)
+    source_ids = _unique([r.get("task_id") for r in rows if r.get("task_id")])
+    return {"result": rows, "source_ids": source_ids, "since": since}
 
 
 # ---------------------------------------------------------------------------

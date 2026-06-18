@@ -33,15 +33,11 @@ echo -e "${MAGENTA}║   AI Project Intelligence Agent  (run_agent.sh)  ║${RES
 echo -e "${MAGENTA}╚══════════════════════════════════════════════════╝${RESET}"
 echo    "  Date : ${DATE}"
 
-# ── step 1 — reset dual store ────────────────────────────────────────────────
-step "[1/2] Resetting dual store (SQLite + ChromaDB)..."
-[ -f "data/vault.db" ] && { rm -f data/vault.db; info "Removed data/vault.db"; }
-[ -d "data/chroma" ]   && { rm -rf data/chroma/; info "Removed data/chroma/"; }
-ok "Stores reset."
-
-# ── step 2 — ingest → concerns → grounded report ─────────────────────────────
-step "[2/2] Ingesting + generating concerns and grounded report..."
-python src/run_agent.py --date "${DATE}"
+# ── ingest → concerns → grounded report ──────────────────────────────────────
+# --reset gives a clean, reproducible baseline (wipes SQLite + ChromaDB first).
+# Drop --reset to run daily and accumulate snapshot history for the diff.
+step "[1/1] Resetting store + ingesting + generating concerns and grounded report..."
+python src/run_agent.py --date "${DATE}" --reset
 
 # ── verification ─────────────────────────────────────────────────────────────
 echo ""
