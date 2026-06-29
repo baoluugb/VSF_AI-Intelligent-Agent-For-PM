@@ -1,8 +1,28 @@
 # KẾ HOẠCH TRIỂN KHAI
 
-**Phiên bản: v3.0** — Cập nhật theo feedback Senior Engineer Review
+**Phiên bản: v4.0** — Tái cấu trúc 6 tuần theo **project charter chính thức** (bảng yêu cầu từ PM/mentor)
 
-> **Thay đổi chính so với v2:** (1) Bỏ LangChain → dùng OpenAI SDK trực tiếp với ReAct loop tự viết. (2) Confluence synthetic chuyển sang format JSON có metadata khớp với Jira. (3) Chunking strategy được định nghĩa rõ per nguồn dữ liệu.
+> **Thay đổi chính so với v3:** (1) Tái cấu trúc 6 tuần bám đúng charter — Jira ingestion + snapshot + entity extraction về **Tuần 1**; day-over-day diff về **Tuần 3**; MCP + guardrail thành **(Stretch) ở Tuần 5**. (2) Bổ sung mục **Sản phẩm bàn giao** và **Tiêu chí hoàn thành** lấy nguyên văn từ charter. (3) Thêm dòng **Trạng thái thực tế** cho mỗi tuần (✅ đã làm / ngoài kế hoạch). Toàn bộ chi tiết kỹ thuật của v3 được giữ nguyên, chỉ sắp xếp lại theo tuần.
+
+---
+
+## 📦 SẢN PHẨM BÀN GIAO (theo charter)
+
+- **Ingestion pipeline 3 nguồn** → normalized docs + entity extraction
+- **Knowledge base**
+- **Report agent**: tool-using, tự quyết investigation steps, citation
+- **Concern engine**: stalled / blocker / deadline + cross-source conflict
+- **MCP server** + guardrail
+- **Report + demo**
+
+## ✅ TIÊU CHÍ HOÀN THÀNH (theo charter)
+
+- Ingest đầy đủ 3 nguồn vào knowledge base; pipeline có **unit test** và **reproducible**.
+- Knowledge base **truy hồi chính xác toàn bộ mention** của một entity qua backlink.
+- Report agent sinh báo cáo với **mỗi mục có trích dẫn nguồn kiểm chứng được**; **day-over-day diff chính xác**.
+- Concern engine: **rule-based hoạt động đúng**.
+- Toàn hệ thống chạy **end-to-end**; có **README**, **tech report** nêu rõ thiết kế / kết quả / hạn chế; **demo hoàn chỉnh**.
+- **MCP verify được trạng thái live**; **guardrail chặn được tập test prompt injection**.
 
 ---
 
@@ -20,11 +40,11 @@
 
 ---
 
-## 🗓️ Tuần 1: Thiết Kế Kiến Trúc Kép & Chuẩn Bị Dữ Liệu
+## 🗓️ Tuần 1: Thiết Kế & Nền Tảng Dữ Liệu (Design + Jira Ingestion)
 
-_Mục tiêu: Chốt schema cho ChromaDB và SQLite, chuẩn bị đủ bộ 3 data có ground truth, setup CI/CD._
+_Mục tiêu (charter): Viết design doc (kiến trúc, data model, phương pháp đánh giá) trình mentor review; dựng 3 nguồn dữ liệu synthetic (Jira inject sẵn các trường hợp bất thường làm ground truth); triển khai ingestion cho Jira, snapshot vào vault, và entity extraction._
 
-### 1.1 Design Doc & Schema
+### 1.1 Design Doc & Schema (Kiến Trúc Kép)
 
 Định nghĩa cấu trúc lưu trữ kép:
 
@@ -41,9 +61,11 @@ _Mục tiêu: Chốt schema cho ChromaDB và SQLite, chuẩn bị đủ bộ 3 d
 - Collection `meeting_chunks`: nội dung Meeting Notes đã chunk theo section
 - Collection `jira_descriptions`: mô tả Jira (1 ticket = 1 chunk, không cắt thêm)
 
-### 1.2 Chuẩn bị Dữ liệu (Data Prep)
+> **Phương pháp đánh giá (trình mentor):** đo precision/recall của Concern Engine trên bộ `_ground_truth`, citation accuracy của Report Agent, và tỉ lệ guardrail chặn injection — chi tiết tiêu chí ở Tuần 5–6.
 
-**Jira:** Dùng bộ synthetic `jira_synthetic_AIP.json` đã generate (104 issues, đủ 4 loại anomaly với `_ground_truth` label).
+### 1.2 Chuẩn bị Dữ liệu (Data Prep) — 3 nguồn synthetic
+
+**Jira:** Dùng bộ synthetic `jira_synthetic_AIP.json` đã generate (đủ 4 loại anomaly với `_ground_truth` label).
 
 **Confluence** — format JSON chuẩn (metadata khớp với Jira để filter chính xác):
 
@@ -84,22 +106,9 @@ attendees_raw: Minh Tuan, Bao Chau, Duc Anh
 
 Cố tình cấy đủ 4 loại lỗi vào bộ data: Stalled, Deadline Risk, Blocker, Cross-source Conflict.
 
-### 1.3 Môi trường & CI
+### 1.3 Jira Ingestion + Entity Extraction + Snapshot vào Vault
 
-- Setup Python repo với cấu trúc thư mục: `src/`, `data/`, `tests/`, `config/`
-- Cấu hình Linter: `flake8` + `black`
-- File `config.py` chứa các threshold (xem tuần 4): `STALLED_DAYS`, `DEADLINE_RISK_DAYS`
-- Viết 1 unit test cơ bản để CI pipeline chạy xanh
-
----
-
-## 🗓️ Tuần 2: Ingestion Pipeline & Knowledge Base (Hệ Lưu Trữ Kép)
-
-_Mục tiêu: Xây dựng pipeline đọc 3 nguồn, phân luồng đúng vào ChromaDB và SQLite._
-
-### 2.1 Custom Ingestion (OpenAI SDK — không dùng LangChain Document Loaders)
-
-Viết 3 connector độc lập, mỗi cái đọc 1 nguồn và trả về `normalized_doc` dict chuẩn:
+Viết connector Jira trả về `normalized_doc` dict theo contract dùng chung cho cả 3 nguồn (Confluence/Meeting connector tái dùng đúng contract này ở Tuần 2):
 
 ```python
 # Mỗi connector trả về format thống nhất:
@@ -112,15 +121,40 @@ Viết 3 connector độc lập, mỗi cái đọc 1 nguồn và trả về `nor
 }
 ```
 
-### 2.2 Entity Extraction & Routing (Phân luồng)
+**Entity Extraction** (regex + rule, không cần LLM): trích Task ID, Person, Date từ nội dung Jira.
 
-Trích xuất entity (Task ID, Person, Date) bằng regex + rule đơn giản — không cần LLM ở bước này.
+**Route vào vault cho nguồn Jira:**
 
-**Route 1 → ChromaDB** (semantic, dùng cho Report Agent):
+- Metadata + status + assignee + due_date → bảng `entities` (SQLite)
+- Snapshot trạng thái ngày hôm đó → bảng `snapshots` (SQLite) — nền tảng cho day-over-day diff ở Tuần 3
+- Jira description → collection `jira_descriptions` (ChromaDB), push thẳng không chunk
+
+### 1.4 Môi trường & CI
+
+- Setup Python repo với cấu trúc thư mục: `src/`, `data/`, `tests/`, `config/`
+- Cấu hình Linter: `flake8` + `black`
+- File `config.py` chứa các threshold (xem Tuần 4): `STALLED_DAYS`, `DEADLINE_RISK_DAYS`
+- Viết unit test cơ bản để CI pipeline chạy xanh (yêu cầu charter: pipeline có unit test + reproducible)
+
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/storage/init_db.py`, `src/storage/sqlite_store.py`, `src/storage/chroma_store.py`, `src/ingestion/jira_connector.py`, `src/ingestion/entity_extractor.py`. Bộ Jira synthetic `data/jira/jira_synthetic_AIP.json` có 144 anomaly (36 mỗi loại) + label `_ground_truth`.
+
+---
+
+## 🗓️ Tuần 2: Hoàn Thiện Ingestion & Knowledge Base
+
+_Mục tiêu (charter): Bổ sung ingestion cho Confluence và meeting notes; gắn wikilink/backlink giữa các entity; hoàn thiện truy vấn theo link, metadata và keyword trên vault._
+
+### 2.1 Confluence & Meeting Notes Connectors
+
+Viết 2 connector còn lại, trả về cùng `normalized_doc` contract như Tuần 1. Không dùng LangChain Document Loaders — connector tự viết để kiểm soát parsing (ADF, YAML front-matter, section `[Attendees]` / `[Action Items]`).
+
+### 2.2 Chunking & Routing vào ChromaDB
+
+**Route → ChromaDB** (semantic, dùng cho Report Agent):
 
 - Confluence content → chunk theo Markdown heading (`MarkdownHeaderTextSplitter` từ `langchain_text_splitters` — chỉ dùng splitter, không import toàn bộ LangChain)
 - Meeting Notes → chunk theo section `[Attendees]` / `[Action Items]` + `RecursiveCharacterTextSplitter`
-- Jira description → push thẳng, không chunk thêm
+- Jira description → push thẳng, không chunk (đã thực hiện ở Tuần 1)
 
 **Chunking parameters:**
 
@@ -130,14 +164,27 @@ Trích xuất entity (Task ID, Person, Date) bằng regex + rule đơn giản �
 | Meeting Notes    | RecursiveCharacterTextSplitter | 300 token  | 40 token | Văn bản trơn, ngắn, 2 section ít liên quan nhau |
 | Jira description | Không chunk                    | —          | —        | Đã ngắn sau khi extract từ ADF                  |
 
-**Route 2 → SQLite** (structured, dùng cho Concern Engine):
+### 2.3 Wikilink / Backlink giữa các Entity
 
-- Entity metadata, status, assignee, due_date → bảng `entities`
-- Snapshot trạng thái ngày hôm đó → bảng `snapshots`
+Entity Extractor sinh backlink từ mention (Jira key trong Confluence/Meeting) và action item → bảng `backlinks` (SQLite). Đây là nền tảng cho tiêu chí charter: _"Knowledge base truy hồi chính xác toàn bộ mention của một entity qua backlink."_
 
-### 2.3 Day-over-day Diff
+### 2.4 Truy vấn Vault: theo Link, Metadata, Keyword
 
-Query SQL thuần, so sánh snapshot hôm nay vs hôm qua:
+- **Theo link/backlink:** từ một `task_id`, lấy mọi mention cross-source qua bảng `backlinks`
+- **Theo metadata:** filter ChromaDB theo `linked_jira_epics`, `source`, `status`
+- **Theo keyword:** semantic + keyword search trên các collection ChromaDB
+
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/ingestion/confluence_connector.py`, `src/ingestion/meeting_notes_connector.py`, `src/storage/chroma_store.py` (3 collection, filter epic/source/status), bảng `backlinks` đã populate. _Hạn chế hiện tại:_ backlink đã lưu đầy đủ nhưng **chưa được surface trong report UI** (Report Agent chưa query bảng backlinks) — để dành cho tính năng "related tasks".
+
+---
+
+## 🗓️ Tuần 3: Report Agent (OpenAI SDK + ReAct Loop)
+
+_Mục tiêu (charter): Xây dựng các tool deterministic, tách biệt và test độc lập; triển khai agent tự điều tra và sinh báo cáo có trích dẫn; bổ sung day-over-day diff dựa trên snapshot._
+
+### 3.1 Day-over-day Diff (dựa trên snapshot)
+
+Query SQL thuần, so sánh snapshot hôm nay vs hôm qua (snapshot được ghi từ Tuần 1):
 
 ```sql
 SELECT
@@ -155,15 +202,9 @@ WHERE today.status != yesterday.status
    OR today.assignee != yesterday.assignee;
 ```
 
----
+### 3.2 Xây dựng Tools (OpenAI Function Calling schema) — deterministic, test độc lập
 
-## 🗓️ Tuần 3: Xây Dựng Report Agent (OpenAI SDK + ReAct Loop)
-
-_Mục tiêu: Tạo Agent biết dùng Tool để tổng hợp báo cáo có trích dẫn — không dùng LangChain._
-
-### 3.1 Xây dựng Tools (OpenAI Function Calling schema)
-
-Định nghĩa 3 tools dưới dạng JSON schema cho OpenAI API:
+Định nghĩa các tool dưới dạng JSON schema cho OpenAI API. Mỗi tool deterministic và có test riêng:
 
 ```python
 TOOLS = [
@@ -214,7 +255,7 @@ TOOLS = [
 ]
 ```
 
-### 3.2 ReAct Loop (tự viết ~50 dòng, không dùng LangChain)
+### 3.3 ReAct Loop (tự viết ~50 dòng, không dùng LangChain)
 
 ```python
 import openai, json
@@ -255,9 +296,9 @@ def run_report_agent(user_query: str, max_iterations: int = 5) -> str:
 
 > **Tại sao max 5 vòng?** Ngăn infinite loop khi Agent không tìm được thông tin. Nếu sau 5 vòng vẫn thiếu, báo cáo sẽ có caveat rõ ràng thay vì hallucinate.
 
-### 3.3 Citation Enforcement
+### 3.4 Citation Enforcement
 
-System prompt ép Agent trích dẫn nguồn:
+System prompt ép Agent trích dẫn nguồn (tiêu chí charter: mỗi mục có trích dẫn kiểm chứng được):
 
 ```
 Mọi nhận định (claim) PHẢI kèm [source_id] lấy từ metadata của tool result.
@@ -266,11 +307,13 @@ Ví dụ đúng:  "Task AIP-45 đang stalled từ 2025-05-18 [AIP-45]"
 Ví dụ sai:   "Task AIP-45 có vẻ đang bị chậm"
 ```
 
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/agents/tools.py` (4 tool: thêm `get_tasks_changed_since` cho diff dài hạn), `src/agents/report_agent.py` (ReAct loop + retry/backoff), `src/agents/report_pipeline.py`. Day-over-day diff tại `src/storage/sqlite_store.py::get_daily_diff()`. Live run gần nhất: **24 citation / 3 vòng lặp**.
+
 ---
 
-## 🗓️ Tuần 4: Concern Engine (Rule-based + LLM Assisted)
+## 🗓️ Tuần 4: Concern Engine (Rule-based + Cross-source)
 
-_Mục tiêu: Phát hiện rủi ro tự động — deterministic rules trên SQLite, LLM chỉ dùng cho cross-source conflict._
+_Mục tiêu (charter): Triển khai tầng rule-based (stalled, blocker, deadline); triển khai cross-source conflict qua entity link, có verify live khi cần; thêm severity scoring và lý giải cho mỗi concern._
 
 ### 4.1 Config file — Threshold tập trung
 
@@ -308,16 +351,16 @@ WHERE 'blocker' IN (SELECT value FROM json_each(labels))
   AND julianday('now') - julianday(updated_at) > :BLOCKER_OPEN_DAYS;
 ```
 
-### 4.3 Cross-source Conflict (LLM — duy nhất nơi dùng AI trong Concern Engine)
+### 4.3 Cross-source Conflict (qua entity link)
 
 Quy trình 2 bước:
 
-1. **Rule-based filter trước:** Tìm các task có `status = 'Done'` trong SQLite mà có chunk trong ChromaDB được cập nhật trong `CONFLICT_WINDOW_H` giờ gần nhất.
-2. **LLM verify:** Chỉ gửi những cặp (SQLite record, ChromaDB chunk) đã lọc ra cho LLM xác nhận có mâu thuẫn thực sự không → giảm false positive, tiết kiệm token.
+1. **Rule-based filter trước:** Tìm các task có `status = 'Done'` (chấp nhận cả `Closed`/`Resolved`) trong SQLite mà có chunk Meeting/Confluence được cập nhật trong `CONFLICT_WINDOW_H` giờ gần nhất, liên kết qua entity backlink.
+2. **Verify khi cần:** Cặp (SQLite record, ChromaDB chunk) đã lọc được kiểm tra bằng keyword conflict (`pending|chờ|review|chưa|in progress|re-open|still fail|...`). Hook LLM verify để confirm/deny là tùy chọn, mặc định chạy rule-based để giữ deterministic và đo được precision/recall.
 
-> **Lưu ý:** LLM output cho cross-source conflict là non-deterministic. Để đo precision/recall chính xác, cần giữ thêm rule-based fallback: nếu chunk chứa keyword `pending|chờ|review|chưa xong` và SQLite status = `Done` → flag là potential conflict, LLM chỉ confirm/deny.
+> **Lưu ý:** Giữ rule-based làm lớp chính giúp đo precision/recall ổn định; LLM verify chỉ là lớp tăng cường tùy chọn để giảm false positive.
 
-### 4.4 Severity Scoring
+### 4.4 Severity Scoring + Lý giải
 
 ```python
 def score_severity(concern_type: str, **kwargs) -> tuple[int, str]:
@@ -339,13 +382,23 @@ def score_severity(concern_type: str, **kwargs) -> tuple[int, str]:
         return 5, "Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending."
 ```
 
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/agents/concern_engine.py`. Tinh chỉnh thực tế: stalled-rule phân tầng (label `needs-review` → sev 4; idle > 30 ngày không label → sev 2 "chronic backlog"; còn lại → sev 3). Cross-source dùng rule-based, LLM-verify để dạng optional hook. **Precision 0.92 / Recall 1.00** trên bộ `_ground_truth`.
+
 ---
 
-## 🗓️ Tuần 5: MCP Server & Guardrails
+## 🗓️ Tuần 5: Hoàn Thiện & Kiểm Chứng (Stretch: MCP + Guardrail)
 
-_Mục tiêu: Đóng gói thành API chuẩn MCP, bảo vệ hệ thống khỏi prompt injection._
+_Mục tiêu (charter): Củng cố concern engine và đánh giá trên các trường hợp đã inject. **(Stretch)** expose MCP server, bổ sung guardrail chống injection._
 
-### 5.1 MCP Server (FastAPI + MCP SDK)
+### 5.1 Củng cố & Đánh giá Concern Engine (primary)
+
+- Chạy Concern Engine trên toàn bộ case anomaly đã inject, đối chiếu `_ground_truth`.
+- Đo **precision / recall** từng loại concern; mục tiêu ≥ 80% (xem V4 ở Tuần 6).
+- Tinh chỉnh threshold trong `config.py` để giảm false positive mà không bỏ sót ground truth.
+
+> **Lưu ý:** Các threshold/rule đã được tinh chỉnh theo benchmark — không mở rộng phạm vi rule mà chưa chạy lại bộ test precision/recall.
+
+### 5.2 (Stretch) MCP Server (FastAPI + MCP SDK)
 
 Mở 3 endpoints chính:
 
@@ -355,9 +408,9 @@ GET  /report?date=...     → Chạy Report Agent, trả về report.md content
 GET  /concerns?min_sev=3  → Trả về danh sách concern đã lọc theo severity
 ```
 
-Thêm Basic Auth (API key trong header `X-API-Key`).
+Thêm Basic Auth (API key trong header `X-API-Key`), fail-closed nếu chưa cấu hình `MCP_API_KEY`.
 
-### 5.2 Guardrails
+### 5.3 (Stretch) Guardrails
 
 **Input Guardrail** — chạy trước khi text đi vào ChromaDB hoặc LLM context:
 
@@ -391,7 +444,7 @@ def sanitize_output(text: str) -> str:
 
 Audit log (SQLite): `timestamp | source_id | field | flag_type | snippet`
 
-### 5.3 End-to-end Test
+### 5.4 (Stretch) End-to-end Test MCP
 
 ```bash
 curl -X POST http://localhost:8000/ingest -H "X-API-Key: $KEY"
@@ -401,11 +454,13 @@ curl http://localhost:8000/concerns?min_sev=3 -H "X-API-Key: $KEY"
 
 Kỳ vọng: pipeline chạy không crash, report có citation, concerns có severity + explanation.
 
+> **Trạng thái thực tế:** Đánh giá concern engine ✅. **(Stretch) đã hoàn thành sớm** — `src/mcp/server.py` (3 endpoint + `X-API-Key`, fail-closed), `src/guardrail/sanitizer.py` (input injection + output secret redaction), bảng `audit_log` đã ghi. Guardrail chặn **4/4** injection test, **0 false positive**.
+
 ---
 
-## 🗓️ Tuần 6: Đóng Gói (One-Command) & Báo Cáo
+## 🗓️ Tuần 6: Tích Hợp & Trình Bày (One-Command)
 
-_Mục tiêu: Hoàn thiện để demo — một lệnh chạy toàn bộ, tech report đầy đủ._
+_Mục tiêu (charter): Hoàn thiện luồng end-to-end chạy bằng một lệnh; viết tech report; chuẩn bị demo và tech talk cho team._
 
 ### 6.1 One-Command Runner
 
@@ -451,12 +506,26 @@ Tech report bao gồm:
 - Benchmark: precision/recall của concern engine, tỉ lệ citation accuracy
 - Lessons learned và roadmap tiếp theo
 
-Kịch bản demo live:
+Kịch bản demo live (+ tech talk cho team):
 
 1. Chạy `./run_agent.sh` từ terminal
 2. Mở `report.md` — chỉ vào citation
 3. Mở `concerns.json` — demo cross-source conflict được phát hiện
 4. Gọi MCP endpoint từ tool ngoài
+
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `run_agent.sh` → `src/run_agent.py` (orchestrator có `--reset`, V2/V3 self-check). Tất cả V1–V6 đạt; có `README.md` + `TECH_REPORT.md`.
+
+---
+
+## ➕ Ngoài Kế Hoạch (đã giao vượt charter)
+
+Các hạng mục đã làm thêm, không nằm trong charter ban đầu:
+
+- **Word/Excel exporters** (`src/exporters.py`): `report.md` → `.docx`, `concerns.json` → `.xlsx` (conditional formatting cho severity = 5); tự chạy trong `run_agent.py`.
+- **`report_pipeline.py`**: tách logic bucketing concern + grounding + sanitize để CLI và MCP server dùng chung.
+- **Retry-with-backoff** trong Report Agent: xử lý lỗi 403/408/429/5xx.
+- **`audit_log`** writes: ghi mọi lần guardrail flag (timestamp / source_id / field / flag_type / snippet).
+- **Incremental `sync_log`**: nền tảng cho ingest tăng dần (idempotent qua UNIQUE index trên `snapshots`).
 
 ---
 
@@ -469,4 +538,4 @@ Kịch bản demo live:
 | Chunking Meeting Notes | RecursiveCharacterTextSplitter (300/40) | Fixed token      | Separator tùy chỉnh cho 2 section       |
 | Confluence format      | JSON + YAML metadata                    | Plain text       | Metadata filter trong ChromaDB          |
 | Concern Engine logic   | Rule-based SQL trước, LLM chỉ confirm   | LLM toàn bộ      | Deterministic, đo được, tiết kiệm token |
-| Cross-source conflict  | Rule filter → LLM verify                | LLM scan toàn bộ | Giảm false positive và chi phí API      |
+| Cross-source conflict  | Rule filter → LLM verify (optional)     | LLM scan toàn bộ | Giảm false positive và chi phí API      |

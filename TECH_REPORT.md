@@ -44,14 +44,14 @@ artifacts to `output/`.
 
 ## 2. Key engineering decisions
 
-| Decision | Choice | Why |
-| --- | --- | --- |
-| Agent framework | **OpenAI SDK + hand-written ReAct loop** | Full control of the control flow; ~50 lines, trivially debuggable. No black-box "why didn't it call the tool" mysteries. |
-| Storage | **Dual: SQLite (facts) + ChromaDB (vectors)** | Deterministic queries (status, dates, day-over-day diff) belong in SQL; semantic recall (design context, meeting commitments) belongs in a vector store. Each plays to its strength. |
-| Concern detection | **Rule-based SQL, LLM only for cross-source** | Risk detection must be deterministic and measurable. 3 rules are pure SQL; only cross-source conflict needs fuzzy matching, and even that is rule-based (keyword) with the LLM as an optional confirmer. |
-| Citations | **Tool results carry `source_ids`; system prompt forbids unsourced claims** | Every claim in the report ends with `[source_id]`; the agent is told to write "(No verified data found.)" rather than hallucinate. |
-| Model config | **`OPENAI_MODEL` from `.env`** | Defaults to `gpt-4o-mini` on `api.openai.com`; set `OPENAI_BASE_URL` to target an OpenAI-compatible proxy (e.g. ckey.vn) without code changes. |
-| Report grounding | **Concern Engine feeds the Report Agent** | The narrative "Concerns" section is anchored to deterministic detections (not the LLM's free exploration), then enriched with Confluence/Meeting context. |
+| Decision          | Choice                                                                      | Why                                                                                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent framework   | **OpenAI SDK + hand-written ReAct loop**                                    | Full control of the control flow; ~50 lines, trivially debuggable. No black-box "why didn't it call the tool" mysteries.                                                                                 |
+| Storage           | **Dual: SQLite (facts) + ChromaDB (vectors)**                               | Deterministic queries (status, dates, day-over-day diff) belong in SQL; semantic recall (design context, meeting commitments) belongs in a vector store. Each plays to its strength.                     |
+| Concern detection | **Rule-based SQL, LLM only for cross-source**                               | Risk detection must be deterministic and measurable. 3 rules are pure SQL; only cross-source conflict needs fuzzy matching, and even that is rule-based (keyword) with the LLM as an optional confirmer. |
+| Citations         | **Tool results carry `source_ids`; system prompt forbids unsourced claims** | Every claim in the report ends with `[source_id]`; the agent is told to write "(No verified data found.)" rather than hallucinate.                                                                       |
+| Model config      | **`OPENAI_MODEL` from `.env`**                                              | Defaults to `gpt-4o-mini` on `api.openai.com`; set `OPENAI_BASE_URL` to target an OpenAI-compatible proxy (e.g. ckey.vn) without code changes.                                                           |
+| Report grounding  | **Concern Engine feeds the Report Agent**                                   | The narrative "Concerns" section is anchored to deterministic detections (not the LLM's free exploration), then enriched with Confluence/Meeting context.                                                |
 
 **Why not LangChain:** for a solo build, controlling every tool call mattered more
 than framework conveniences. The ReAct loop is `run_report_agent()` — a single
@@ -75,6 +75,7 @@ and every claim is cited:
 
 ```markdown
 ## Cần xử lý hôm nay
+
 Tổng quan rủi ro: 36 blocker · 66 quá hạn/sắp hết hạn · 139 trì trệ · 1 xung đột nguồn.
 
 1. **FLINK-40** — severity 5 — Deadline quá hạn 2 ngày, status 'Reopened', phụ trách Jack Jackson [FLINK-40].
@@ -82,6 +83,7 @@ Tổng quan rủi ro: 36 blocker · 66 quá hạn/sắp hết hạn · 139 trì 
    …
 
 ## Rủi ro
+
 - **Trì trệ**: 139 task đang trì trệ (gộp; các mục kinh niên không liệt kê từng cái).
 - **Blocker**: KAFKA-64 mở 11 ngày, ảnh hưởng 4 task [KAFKA-64].
 - **Xung đột nguồn**: AIP-5 ghi Done trong Jira nhưng tài liệu khác vẫn pending/review [AIP-5].
@@ -95,11 +97,20 @@ English run produced 24.)
 
 ```json
 [
-  {"type": "cross_source_conflict", "task_id": "AIP-5", "severity": 5,
-   "explanation": "Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending/review.",
-   "source_ids": ["AIP-5", "MTG-…"]},
-  {"type": "unresolved_blocker", "task_id": "KAFKA-64", "severity": 5,
-   "explanation": "Blocker mở 11 ngày, ảnh hưởng 12 task.", "source_ids": ["KAFKA-64"]}
+  {
+    "type": "cross_source_conflict",
+    "task_id": "AIP-5",
+    "severity": 5,
+    "explanation": "Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending/review.",
+    "source_ids": ["AIP-5", "MTG-…"]
+  },
+  {
+    "type": "unresolved_blocker",
+    "task_id": "KAFKA-64",
+    "severity": 5,
+    "explanation": "Blocker mở 11 ngày, ảnh hưởng 12 task.",
+    "source_ids": ["KAFKA-64"]
+  }
 ]
 ```
 
@@ -109,25 +120,25 @@ English run produced 24.)
 
 **Ingestion (full synthetic corpus, real-data scale):**
 
-| Metric | Value |
-| --- | --- |
+| Metric             | Value                                          |
+| ------------------ | ---------------------------------------------- |
 | Documents ingested | 1222 (1000 Jira + 217 Confluence + 5 Meetings) |
-| SQLite entities | 1000 |
-| Confluence chunks | 1614 |
-| Meeting chunks | 21 |
-| Backlinks | 719 |
+| SQLite entities    | 1000                                           |
+| Confluence chunks  | 1614                                           |
+| Meeting chunks     | 21                                             |
+| Backlinks          | 719                                            |
 
 **Concern Engine accuracy** (`tests/test_concern_engine.py`, vs `_ground_truth`):
 
-| Metric | Value |
-| --- | --- |
-| Per-rule recall (stalled / deadline / blocker) | 3/3, 2/2, 2/2 detected |
-| Precision (108 anomalies + 100 normals) | **0.92** |
-| Recall | **1.00** |
-| Concerns at `as_of=2025-05-30` | 242 (deadline 66, stalled 139, blocker 36, cross-source 1) |
+| Metric                                         | Value                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| Per-rule recall (stalled / deadline / blocker) | 3/3, 2/2, 2/2 detected                                     |
+| Precision (108 anomalies + 100 normals)        | **0.92**                                                   |
+| Recall                                         | **1.00**                                                   |
+| Concerns at `as_of=2025-05-30`                 | 242 (deadline 66, stalled 139, blocker 36, cross-source 1) |
 
 > Precision is prevalence-sensitive: against all 856 normals it drops (~0.5), because
-> the `stalled` rule still *surfaces* every genuinely-stale task. Rather than overfit
+> the `stalled` rule still _surfaces_ every genuinely-stale task. Rather than overfit
 > the detector, renovation #1 keeps all stalled tasks but **tiers their severity**: the
 > 35 planted anomalies carry a `needs-review` label → severity 4 (actionable), while
 > long-idle/unlabelled tasks are marked **chronic** → severity 2 and kept out of the
@@ -135,11 +146,11 @@ English run produced 24.)
 
 **Guardrails** (`tests/test_guardrail.py`, adversarial):
 
-| Metric | Value |
-| --- | --- |
-| Injection payloads blocked | 4/4 → `[FILTERED]` |
-| Benign inputs filtered (false positives) | **0/3** |
-| Output secret redaction | `sk-…` keys, bearer tokens, PEM private keys → `[REDACTED]` |
+| Metric                                   | Value                                                       |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| Injection payloads blocked               | 4/4 → `[FILTERED]`                                          |
+| Benign inputs filtered (false positives) | **0/3**                                                     |
+| Output secret redaction                  | `sk-…` keys, bearer tokens, PEM private keys → `[REDACTED]` |
 
 **Test suite:** 95 passed (the stale meeting-notes count is fixed; MCP-server tests
 self-skip when `fastapi` is absent), plus 17 in-file sanitizer tests
@@ -159,7 +170,7 @@ had missed:
 2. **Jira `source` discriminator.** The synthetic file declares `"source": "Apache"`;
    the connector copied it verbatim, so every issue fell through the `source=="jira"`
    routing (entities = 0). Fixed to emit the canonical `"jira"`.
-3. **Deadline rule over-flagging.** Flagging *any* overdue task gave 0.29 precision
+3. **Deadline rule over-flagging.** Flagging _any_ overdue task gave 0.29 precision
    (hundreds of long-overdue normal tasks). Refined to a **near-deadline window**
    (`±DEADLINE_RISK_DAYS`) → precision 0.92, matching the plan's "approaching deadline"
    intent.
@@ -176,14 +187,14 @@ had missed:
 
 ## 6. Verification (Definition of Done)
 
-| # | Criterion | Status |
-| --- | --- | --- |
-| V1 | `run_agent.sh` runs end-to-end without crashing | ✅ (resilient even when the LLM proxy throttles) |
-| V2 | `report.md` has ≥ 5 valid citations | ✅ 24 in the live run |
-| V3 | All 4 anomaly types detected | ✅ present in `concerns.json` |
-| V4 | Concern precision/recall ≥ 80% | ✅ 0.92 / 1.00 on the sampled mix (prevalence caveat above) |
-| V5 | Guardrail blocks ≥ 3 injections | ✅ 4/4, 0 false positives |
-| V6 | Live demo | ✅ live `gpt-4o-mini` run produced the report above |
+| #   | Criterion                                       | Status                                                      |
+| --- | ----------------------------------------------- | ----------------------------------------------------------- |
+| V1  | `run_agent.sh` runs end-to-end without crashing | ✅ (resilient even when the LLM proxy throttles)            |
+| V2  | `report.md` has ≥ 5 valid citations             | ✅ 24 in the live run                                       |
+| V3  | All 4 anomaly types detected                    | ✅ present in `concerns.json`                               |
+| V4  | Concern precision/recall ≥ 80%                  | ✅ 0.92 / 1.00 on the sampled mix (prevalence caveat above) |
+| V5  | Guardrail blocks ≥ 3 injections                 | ✅ 4/4, 0 false positives                                   |
+| V6  | Live demo                                       | ✅ live `gpt-4o-mini` run produced the report above         |
 
 ---
 
