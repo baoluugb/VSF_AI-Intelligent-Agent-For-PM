@@ -39,7 +39,16 @@ import logging
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from config import CHROMA_PATH, DB_PATH
+from config import (
+    CHROMA_PATH,
+    CONFLUENCE_API_TOKEN,
+    CONFLUENCE_BASE_URL,
+    DB_PATH,
+    JIRA_API_TOKEN,
+    JIRA_BASE_URL,
+    JIRA_EMAIL,
+    SOURCE_MODE,
+)
 from guardrail.sanitizer import InputSanitizer
 from ingestion.confluence_connector import ConfluenceConnector
 from ingestion.entity_extractor import EntityExtractor
@@ -85,6 +94,30 @@ def _meeting_to_chroma(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Source selection: synthetic (local JSON) vs api (live Jira/Confluence Cloud)
+# ---------------------------------------------------------------------------
+
+def _make_jira_connector(jira_path: Optional[str], source_mode: str):
+    """Pick the Jira connector for ``source_mode``; ``None`` to skip Jira."""
+    if source_mode == "api":
+        from ingestion.jira_api_connector import JiraApiConnector
+
+        return JiraApiConnector(JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)
+    return JiraConnector(jira_path) if jira_path else None
+
+
+def _make_confluence_connector(conf_path: Optional[str], source_mode: str):
+    """Pick the Confluence connector for ``source_mode``; ``None`` to skip."""
+    if source_mode == "api":
+        from ingestion.confluence_api_connector import ConfluenceApiConnector
+
+        return ConfluenceApiConnector(
+            CONFLUENCE_BASE_URL, JIRA_EMAIL, CONFLUENCE_API_TOKEN
+        )
+    return ConfluenceConnector(conf_path) if conf_path else None
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -97,6 +130,7 @@ def run_pipeline(
     chroma_path: str = CHROMA_PATH,
     sanitizer: Optional[InputSanitizer] = None,
     as_of: Optional[str] = None,
+    source_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run ingestion across the provided sources and route into both stores.
 
@@ -139,13 +173,21 @@ def run_pipeline(
     init_db(db_path)
 
     # 1. Load normalized docs from each source ------------------------------
+    # source_mode "synthetic" (default) reads local JSON; "api" reads live
+    # Jira/Confluence Cloud. Meeting notes have no standard API → always file-based.
+    source_mode = source_mode or SOURCE_MODE
     all_docs: List[Dict[str, Any]] = []
-    if jira_path:
-        logger.info("Loading Jira from %s", jira_path)
-        all_docs.extend(JiraConnector(jira_path).load())
-    if conf_path:
-        logger.info("Loading Confluence from %s", conf_path)
-        all_docs.extend(ConfluenceConnector(conf_path).load())
+
+    jira_connector = _make_jira_connector(jira_path, source_mode)
+    if jira_connector is not None:
+        logger.info("Loading Jira (source_mode=%s)", source_mode)
+        all_docs.extend(jira_connector.load())
+
+    conf_connector = _make_confluence_connector(conf_path, source_mode)
+    if conf_connector is not None:
+        logger.info("Loading Confluence (source_mode=%s)", source_mode)
+        all_docs.extend(conf_connector.load())
+
     if notes_path:
         logger.info("Loading Meeting Notes from %s", notes_path)
         all_docs.extend(MeetingNotesConnector(notes_path).load())

@@ -123,6 +123,8 @@ This will:
 
 > **Windows users:** run `poetry run python src/run_agent.py` directly (the shell script targets bash/WSL).
 
+> **Daily run (accumulate history):** `run_agent.sh` resets the store for a clean demo, so the "Recent Changes" section is empty. To build real day-over-day history, run `./scripts/daily_run.sh` (no reset) on a schedule (cron/systemd) — see [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md). Set `SLACK_WEBHOOK_URL` to also post a daily digest to Slack.
+
 ### 4. Ingestion only
 
 ```bash

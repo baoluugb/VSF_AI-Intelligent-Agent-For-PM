@@ -51,7 +51,9 @@ from ingestion.run_pipeline import (
 )
 from agents.report_pipeline import generate_grounded_report
 from agents.concern_engine import ConcernEngine
-from config import CHROMA_PATH, DB_PATH
+from agents.insights import aggregate_by_assignee, weekly_changes
+from delivery.slack import post_concerns_digest
+from config import CHROMA_PATH, DB_PATH, REPORT_LANG, SLACK_WEBHOOK_URL
 
 
 logger = logging.getLogger(__name__)
@@ -116,6 +118,19 @@ def run(
             json.dump(concerns, fh, ensure_ascii=False, indent=2)
         logger.info("Wrote %d concern(s) -> %s", len(concerns), concerns_path)
 
+        # 2b. PM rollups & trends -> insights.json --------------------------
+        # Owner rollup ("who carries the most risk") + "what changed since last
+        # week" (meaningful once daily runs accumulate snapshot history).
+        insights = {
+            "date": date_str,
+            "by_assignee": aggregate_by_assignee(concerns),
+            "changes_since_last_week": weekly_changes(store, date_str, 7),
+        }
+        insights_path = os.path.join(output_dir, "insights.json")
+        with open(insights_path, "w", encoding="utf-8") as fh:
+            json.dump(insights, fh, ensure_ascii=False, indent=2)
+        logger.info("Wrote insights -> %s", insights_path)
+
         # 3. Grounded Report Agent -> report.md -----------------------------
         # The "Recent Changes" section is a real day-over-day diff (get_daily_diff
         # over the accumulated snapshots) — empty when nothing changed since the
@@ -127,6 +142,17 @@ def run(
     with open(report_path, "w", encoding="utf-8") as fh:
         fh.write(report)
     logger.info("Wrote report -> %s", report_path)
+
+    # 4. Optional delivery: post a digest to Slack when configured -----------
+    # Opt-in via SLACK_WEBHOOK_URL; a failed post is logged but never crashes
+    # the daily run (mirrors the export error handling below).
+    slack_delivered = False
+    if SLACK_WEBHOOK_URL:
+        try:
+            slack_delivered = post_concerns_digest(
+                date_str, concerns, SLACK_WEBHOOK_URL, lang=REPORT_LANG)
+        except Exception as exc:
+            logger.error("Slack delivery failed: %s", exc)
 
     # 5. Export report to Word (.docx) & concerns to Excel (.xlsx) -----------
     report_docx_path = os.path.join(output_dir, "report.docx")
@@ -151,8 +177,10 @@ def run(
         "concerns": len(concerns),
         "report_path": report_path,
         "concerns_path": concerns_path,
+        "insights_path": insights_path,
         "report_docx_path": report_docx_path,
         "concerns_xlsx_path": concerns_xlsx_path,
+        "slack_delivered": slack_delivered,
     }
 
 

@@ -33,6 +33,20 @@ REPORT_LANG = os.getenv("REPORT_LANG", "vi")
 # citations like [FLINK-40] become clickable links. Empty → links disabled.
 JIRA_BASE_URL = os.getenv("JIRA_BASE_URL", "")
 
+# Optional Slack Incoming Webhook. When set, run_agent posts a daily risk digest
+# to Slack after generating the report. Empty → delivery disabled (no-op).
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+
+# Ingestion source mode: "synthetic" (default — read local JSON dumps) or "api"
+# (read live Jira/Confluence Cloud via REST). The credentials below are only
+# needed when SOURCE_MODE=api. JIRA_EMAIL is the Atlassian account email used for
+# HTTP-basic auth on both products; tokens are per-product API tokens.
+SOURCE_MODE = os.getenv("SOURCE_MODE", "synthetic")
+JIRA_EMAIL = os.getenv("JIRA_EMAIL", "")
+JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
+CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL", "")
+CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN", "")
+
 CHUNK_SIZE_CONFLUENCE = 600
 CHUNK_OVERLAP_CONFLUENCE = 80
 CHUNK_SIZE_MEETING = 300
