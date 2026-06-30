@@ -68,6 +68,23 @@ def init_db(db_path: PathLike = DEFAULT_DB_PATH) -> None:
 				snippet TEXT
 			);
 
+			-- Per-document content hash, so incremental ingestion can skip
+			-- re-embedding a doc into ChromaDB when its content hasn't changed.
+			CREATE TABLE IF NOT EXISTS doc_hashes (
+				source_id TEXT PRIMARY KEY,
+				content_hash TEXT NOT NULL
+			);
+
+			-- One row per (run date, concern) so the next run can diff its
+			-- concern set into new / resolved / worsened (delta-first digest).
+			CREATE TABLE IF NOT EXISTS concern_snapshots (
+				snapshot_date TEXT NOT NULL,
+				type TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				severity INTEGER,
+				PRIMARY KEY (snapshot_date, type, task_id)
+			);
+
 			CREATE INDEX IF NOT EXISTS idx_entities_status
 				ON entities(status);
 			CREATE INDEX IF NOT EXISTS idx_entities_updated_at

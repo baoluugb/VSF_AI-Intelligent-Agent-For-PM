@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from config import DB_PATH
 
@@ -325,6 +325,64 @@ class SQLiteStore:
             (source,),
         )
         connection.commit()
+
+    def load_doc_hashes(self) -> Dict[str, str]:
+        """Return ``{source_id: content_hash}`` for every ingested document.
+
+        Lets the ingestion pipeline skip re-embedding a doc into ChromaDB when
+        its content hash matches the stored one (incremental ingestion).
+        """
+        rows = self.run_query("SELECT source_id, content_hash FROM doc_hashes")
+        return {r["source_id"]: r["content_hash"] for r in rows}
+
+    def save_doc_hashes(self, hashes: Dict[str, str]) -> None:
+        """Upsert this run's per-document content hashes."""
+        if not hashes:
+            return
+        connection = self._ensure_connection()
+        with connection:
+            connection.executemany(
+                "INSERT OR REPLACE INTO doc_hashes (source_id, content_hash) "
+                "VALUES (?, ?)",
+                list(hashes.items()),
+            )
+
+    def save_concern_snapshot(
+        self, date_value: str, concerns: List[Dict[str, Any]]
+    ) -> None:
+        """Persist this run's concern set so the next run can diff against it."""
+        if not concerns:
+            return
+        connection = self._ensure_connection()
+        rows = [
+            (date_value, c.get("type"), c.get("task_id"), c.get("severity"))
+            for c in concerns
+        ]
+        with connection:
+            connection.executemany(
+                "INSERT OR REPLACE INTO concern_snapshots "
+                "(snapshot_date, type, task_id, severity) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+
+    def load_prior_concerns(self, date_value: str) -> Dict[Tuple[str, str], int]:
+        """Concern set from the most recent run *before* ``date_value``.
+
+        Returns ``{(type, task_id): severity}`` — the baseline the concern delta
+        (new / resolved / worsened) is computed against. Empty when there's no
+        prior run (robust to gaps via ``MAX(snapshot_date) < date``).
+        """
+        rows = self.run_query(
+            """
+            SELECT type, task_id, severity FROM concern_snapshots
+            WHERE snapshot_date = (
+                SELECT MAX(snapshot_date) FROM concern_snapshots
+                WHERE snapshot_date < ?
+            )
+            """,
+            (date_value,),
+        )
+        return {(r["type"], r["task_id"]): r["severity"] for r in rows}
 
     def insert_backlinks(self, backlinks: List[Dict[str, Any]]) -> int:
         if not backlinks:

@@ -51,7 +51,7 @@ from ingestion.run_pipeline import (
 )
 from agents.report_pipeline import generate_grounded_report
 from agents.concern_engine import ConcernEngine
-from agents.insights import aggregate_by_assignee, weekly_changes
+from agents.insights import aggregate_by_assignee, compute_concern_delta, weekly_changes
 from delivery.slack import post_concerns_digest
 from config import CHROMA_PATH, DB_PATH, REPORT_LANG, SLACK_WEBHOOK_URL
 
@@ -118,11 +118,18 @@ def run(
             json.dump(concerns, fh, ensure_ascii=False, indent=2)
         logger.info("Wrote %d concern(s) -> %s", len(concerns), concerns_path)
 
-        # 2b. PM rollups & trends -> insights.json --------------------------
+        # 2b. Concern delta vs the previous run — read the prior set BEFORE
+        # saving today's, so the report/Slack digest LEADS with what changed.
+        prior_concerns = store.load_prior_concerns(date_str)
+        delta = compute_concern_delta(prior_concerns, concerns)
+        store.save_concern_snapshot(date_str, concerns)
+
+        # 2c. PM rollups & trends -> insights.json --------------------------
         # Owner rollup ("who carries the most risk") + "what changed since last
         # week" (meaningful once daily runs accumulate snapshot history).
         insights = {
             "date": date_str,
+            "delta": delta,
             "by_assignee": aggregate_by_assignee(concerns),
             "changes_since_last_week": weekly_changes(store, date_str, 7),
         }
@@ -136,7 +143,7 @@ def run(
         # over the accumulated snapshots) — empty when nothing changed since the
         # prior run.
         logger.info("Running Report Agent (grounded with %d concerns)...", len(concerns))
-        report = generate_grounded_report(date_str, concerns, store, chroma)
+        report = generate_grounded_report(date_str, concerns, store, chroma, delta=delta)
 
     report_path = os.path.join(output_dir, "report.md")
     with open(report_path, "w", encoding="utf-8") as fh:
@@ -150,7 +157,7 @@ def run(
     if SLACK_WEBHOOK_URL:
         try:
             slack_delivered = post_concerns_digest(
-                date_str, concerns, SLACK_WEBHOOK_URL, lang=REPORT_LANG)
+                date_str, concerns, SLACK_WEBHOOK_URL, lang=REPORT_LANG, delta=delta)
         except Exception as exc:
             logger.error("Slack delivery failed: %s", exc)
 

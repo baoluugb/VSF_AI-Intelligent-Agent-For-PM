@@ -281,20 +281,64 @@ def linkify_jira(text: str, base_url: str) -> str:
     return _JIRA_KEY_RE.sub(_repl, text)
 
 
+def format_concern_delta(
+    delta: Optional[Dict[str, Any]], lang: Optional[str] = None
+) -> str:
+    """Deterministic 'what changed since the last run' block that LEADS the report.
+
+    Trustworthy by construction (computed from stored concern sets, not the LLM),
+    so a PM can act on it. Concern ids stay as ``[TASK]`` so ``linkify_jira`` turns
+    them into Jira links.
+    """
+    vi = _is_vi(lang)
+    head = "## 🔔 Thay đổi từ lần trước" if vi else "## 🔔 Changes Since Last Run"
+    if not delta or not delta.get("has_prior"):
+        msg = ("_Lần chạy đầu — chưa có mốc so sánh._" if vi
+               else "_First run — no prior baseline to compare._")
+        return f"{head}\n{msg}"
+
+    labels = _TYPE_LABELS["vi" if vi else "en"]
+
+    def _ids(items: List[Dict[str, Any]]) -> str:
+        return " · ".join(
+            f"[{c['task_id']}] {labels.get(c['type'], c['type'])}" for c in items
+        ) or "—"
+
+    worse = " · ".join(
+        f"[{c['task_id']}] sev {c['prev_severity']}→{c['severity']}"
+        for c in delta["worsened"]
+    ) or "—"
+    n_new = len(delta["new"])
+    n_res = len(delta["resolved"])
+    n_wor = len(delta["worsened"])
+    if vi:
+        rows = [f"🆕 Mới ({n_new}): {_ids(delta['new'])}",
+                f"✅ Đã giải quyết ({n_res}): {_ids(delta['resolved'])}",
+                f"⬆️ Nặng hơn ({n_wor}): {worse}"]
+    else:
+        rows = [f"🆕 New ({n_new}): {_ids(delta['new'])}",
+                f"✅ Resolved ({n_res}): {_ids(delta['resolved'])}",
+                f"⬆️ Worse ({n_wor}): {worse}"]
+    return "\n".join([head, *rows])
+
+
 def generate_grounded_report(
     date_str: str,
     concerns: List[Dict[str, Any]],
     sqlite_store: SQLiteStore,
     chroma_store: ChromaStore,
     lang: Optional[str] = None,
+    delta: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Build a Concern-Engine-grounded prompt, run the Report Agent, and sanitize.
 
     Falls back to a deterministic Concern-Engine-only report if the LLM call
     raises (proxy throttling, network errors, etc.), so a caller never crashes.
-    Always returns text that has passed through ``OutputSanitizer`` (secrets
-    redacted) — safe to hand straight back to an API client or write to disk.
-    Jira citations are linkified when ``config.JIRA_BASE_URL`` is set.
+    When ``delta`` is given, a deterministic "what changed since last run" block
+    is prepended so the report LEADS with change. Always returns text that has
+    passed through ``OutputSanitizer`` (secrets redacted) — safe to hand straight
+    back to an API client or write to disk. Jira citations are linkified when
+    ``config.JIRA_BASE_URL`` is set.
     """
     lang = lang or REPORT_LANG
     user_query = build_user_query(date_str, concerns, lang)
@@ -304,6 +348,9 @@ def generate_grounded_report(
         logger.error(
             "Report Agent failed (%s); using deterministic fallback report.", exc)
         report = fallback_report(date_str, concerns, exc, lang)
+
+    if delta is not None:
+        report = format_concern_delta(delta, lang) + "\n\n" + report
 
     report = OutputSanitizer().sanitize(report)
     return linkify_jira(report, JIRA_BASE_URL)

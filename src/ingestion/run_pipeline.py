@@ -35,6 +35,8 @@ for _p in (_ROOT_DIR, _SRC_DIR):
         sys.path.insert(0, _p)
 
 import argparse
+import hashlib
+import json
 import logging
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -91,6 +93,13 @@ def _meeting_to_chroma(doc: Dict[str, Any]) -> Dict[str, Any]:
         "date": doc.get("date", ""),
         "project": doc.get("project", ""),
     }
+
+
+def _doc_content_hash(doc: Dict[str, Any]) -> str:
+    """Stable hash of a normalized doc — any change to its embedded text or
+    metadata busts it, so an unchanged doc (same hash) can skip re-embedding."""
+    canonical = json.dumps(doc, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -251,23 +260,43 @@ def run_pipeline(
         len(entities), entities_changed, snapshot_date, len(backlinks), sources,
     )
 
-    # 4. Route semantic data into ChromaDB ----------------------------------
+    # 4. Route semantic data into ChromaDB (incremental: skip docs whose content
+    #    hash is unchanged, so an unchanged daily re-run re-embeds nothing) ------
     chroma_store = ChromaStore(path=chroma_path)
     jira_docs = 0
     confluence_chunks = 0
     meeting_chunks = 0
-    for doc in all_docs:
-        source = doc.get("source")
-        if source == "jira":
-            chroma_store.add_jira_description(doc)  # reads description/source_id directly
-            jira_docs += 1
-        elif source == "confluence":
-            confluence_chunks += chroma_store.add_confluence_chunks(_confluence_to_chroma(doc))
-        elif source == "meeting_notes":
-            meeting_chunks += chroma_store.add_meeting_chunks(_meeting_to_chroma(doc))
+    embedded_docs = 0
+    skipped_unchanged = 0
+    with SQLiteStore(db_path=db_path) as sqlite_store:
+        prior_hashes = sqlite_store.load_doc_hashes()
+        new_hashes: Dict[str, str] = {}
+        for doc in all_docs:
+            source = doc.get("source")
+            source_id = doc.get("source_id")
+            content_hash = _doc_content_hash(doc)
+            if source_id:
+                new_hashes[source_id] = content_hash
+                if prior_hashes.get(source_id) == content_hash:
+                    skipped_unchanged += 1
+                    continue  # unchanged → already embedded, skip re-embed
+            if source == "jira":
+                chroma_store.add_jira_description(doc)  # description/source_id
+                jira_docs += 1
+            elif source == "confluence":
+                confluence_chunks += chroma_store.add_confluence_chunks(
+                    _confluence_to_chroma(doc)
+                )
+            elif source == "meeting_notes":
+                meeting_chunks += chroma_store.add_meeting_chunks(
+                    _meeting_to_chroma(doc)
+                )
+            embedded_docs += 1
+        sqlite_store.save_doc_hashes(new_hashes)
     logger.info(
-        "ChromaDB: %d jira docs, %d confluence chunks, %d meeting chunks.",
-        jira_docs, confluence_chunks, meeting_chunks,
+        "ChromaDB: embedded %d doc(s) [%d jira, %d conf chunks, %d meeting chunks]; "
+        "skipped %d unchanged.",
+        embedded_docs, jira_docs, confluence_chunks, meeting_chunks, skipped_unchanged,
     )
 
     logger.info("Ingestion pipeline completed successfully.")
@@ -279,6 +308,8 @@ def run_pipeline(
         "jira_docs": jira_docs,
         "confluence_chunks": confluence_chunks,
         "meeting_chunks": meeting_chunks,
+        "embedded_docs": embedded_docs,
+        "skipped_unchanged": skipped_unchanged,
         "sources": sources,
         "flagged_injections": flagged_injections,
     }

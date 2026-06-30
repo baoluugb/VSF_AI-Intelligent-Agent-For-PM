@@ -31,12 +31,25 @@ def build_digest_text(
     concerns: List[Dict[str, Any]],
     lang: Optional[str] = None,
     report_url: Optional[str] = None,
+    delta: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Build the Slack message: header + one-line risk summary + top-N actions."""
+    """Build the Slack message: header + risk summary + delta + top-N actions."""
     counts, chronic = summarize_counts(concerns)
     summary = format_summary(counts, chronic, lang)
 
     lines = [f"*Project Intelligence — {date_str}*", summary]
+
+    if delta and delta.get("has_prior"):
+        if (lang or "").lower().startswith("vi"):
+            lines.append(
+                f"🆕 {len(delta['new'])} mới · ✅ {len(delta['resolved'])} xong · "
+                f"⬆️ {len(delta['worsened'])} nặng hơn"
+            )
+        else:
+            lines.append(
+                f"🆕 {len(delta['new'])} new · ✅ {len(delta['resolved'])} resolved · "
+                f"⬆️ {len(delta['worsened'])} worse"
+            )
 
     top = select_actionable(concerns, _TOP_N)
     if top:
@@ -57,6 +70,7 @@ def post_concerns_digest(
     *,
     lang: Optional[str] = None,
     report_url: Optional[str] = None,
+    delta: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Post the digest to ``webhook_url``. No-op (returns False) when unset.
 
@@ -68,7 +82,9 @@ def post_concerns_digest(
         logger.info("SLACK_WEBHOOK_URL not set — skipping Slack delivery.")
         return False
 
-    text = build_digest_text(date_str, concerns, lang=lang, report_url=report_url)
+    text = build_digest_text(
+        date_str, concerns, lang=lang, report_url=report_url, delta=delta
+    )
     resp = httpx.post(webhook_url, json={"text": text}, timeout=_TIMEOUT_S)
     resp.raise_for_status()
     logger.info("Posted daily digest to Slack (%d concern(s)).", len(concerns))

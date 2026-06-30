@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 if TYPE_CHECKING:  # annotation only — the store is passed in at call time
     from storage.sqlite_store import SQLiteStore
@@ -56,3 +56,35 @@ def weekly_changes(
     accumulated history."""
     from_date = (date.fromisoformat(date_str) - timedelta(days=days)).isoformat()
     return store.diff_since(from_date)
+
+
+def compute_concern_delta(
+    prior: Dict[Tuple[str, str], int], today: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Diff today's concern set against the prior run's — the "delta-first" core.
+
+    ``prior`` is ``{(type, task_id): severity}`` (from
+    ``SQLiteStore.load_prior_concerns``); ``today`` is the concern list. Returns
+    ``new`` / ``resolved`` / ``worsened`` (severity-sorted) plus ``has_prior``
+    (False on the first run — nothing to compare against).
+    """
+    today_by_key = {(c["type"], c["task_id"]): c for c in today}
+    new = [c for k, c in today_by_key.items() if k not in prior]
+    resolved = [
+        {"type": t, "task_id": tid, "severity": sev}
+        for (t, tid), sev in prior.items()
+        if (t, tid) not in today_by_key
+    ]
+    worsened = [
+        {**c, "prev_severity": prior[k]}
+        for k, c in today_by_key.items()
+        if k in prior and (c.get("severity") or 0) > (prior[k] or 0)
+    ]
+    new.sort(key=lambda c: c.get("severity") or 0, reverse=True)
+    worsened.sort(key=lambda c: c.get("severity") or 0, reverse=True)
+    return {
+        "has_prior": bool(prior),
+        "new": new,
+        "resolved": resolved,
+        "worsened": worsened,
+    }
