@@ -1,6 +1,6 @@
 # Project Status Audit
 
-Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md) (v3.0).
+Audit of repository state against [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md) (v5.0).
 
 **Audit date:** 2026-06-07 · **Branch:** `main` · **HEAD:** `3a205e4` · **Working tree:** clean
 

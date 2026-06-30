@@ -10,7 +10,7 @@ An end-to-end AI agent that ingests Jira, Confluence, and meeting-notes data, de
 
 ```
 VSF_AI-Intelligent-Agent-For-PM/
-├── AI_Project_Intelligence_Agent_Plan.md   # Master plan (v3.0)
+├── AI_Project_Intelligence_Agent_Plan.md   # Master plan + improvement roadmap (v5.0)
 ├── TECH_REPORT.md                          # Architecture, benchmarks, decisions
 ├── project_status_audit.md                 # Audit of plan vs. implementation
 ├── config.py                               # Thresholds + OpenAI settings
@@ -123,7 +123,7 @@ This will:
 
 > **Windows users:** run `poetry run python src/run_agent.py` directly (the shell script targets bash/WSL).
 
-> **Daily run (accumulate history):** `run_agent.sh` resets the store for a clean demo, so the "Recent Changes" section is empty. To build real day-over-day history, run `./scripts/daily_run.sh` (no reset) on a schedule (cron/systemd) — see [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md). Set `SLACK_WEBHOOK_URL` to also post a daily digest to Slack.
+> **Daily run (accumulate history):** `run_agent.sh` resets the store for a clean demo, so the "Recent Changes" section is empty. To build real day-over-day history, run `./scripts/daily_run.sh` (no reset) on a schedule (cron/systemd) — see the scheduler appendix in [AI_Project_Intelligence_Agent_Plan.md](AI_Project_Intelligence_Agent_Plan.md). Set `SLACK_WEBHOOK_URL` to also post a daily digest to Slack.
 
 ### 4. Ingestion only
 

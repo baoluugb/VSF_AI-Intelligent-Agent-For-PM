@@ -1,12 +1,14 @@
-# KẾ HOẠCH TRIỂN KHAI
+# KẾ HOẠCH TRIỂN KHAI & CẢI TIẾN — AI Project Intelligence Agent
 
-**Phiên bản: v4.0** — Tái cấu trúc 6 tuần theo **project charter chính thức** (bảng yêu cầu từ PM/mentor)
+**Phiên bản: v5.0 (hợp nhất)** — gộp **kế hoạch triển khai 6 tuần** (theo project charter) và **roadmap cải tiến** (góc PM) thành một tài liệu duy nhất.
 
-> **Thay đổi chính so với v3:** (1) Tái cấu trúc 6 tuần bám đúng charter — Jira ingestion + snapshot + entity extraction về **Tuần 1**; day-over-day diff về **Tuần 3**; MCP + guardrail thành **(Stretch) ở Tuần 5**. (2) Bổ sung mục **Sản phẩm bàn giao** và **Tiêu chí hoàn thành** lấy nguyên văn từ charter. (3) Thêm dòng **Trạng thái thực tế** cho mỗi tuần (✅ đã làm / ngoài kế hoạch). Toàn bộ chi tiết kỹ thuật của v3 được giữ nguyên, chỉ sắp xếp lại theo tuần.
+> **Cấu trúc:** (1) Bàn giao & tiêu chí (charter); (2) Tech stack + kế hoạch 6 tuần đã triển khai + quyết định kiến trúc; (3) Roadmap cải tiến (Now/Next/Later, đã cập nhật trạng thái theo thực tế).
+>
+> **Lịch sử:** v4.0 tái cấu trúc 6 tuần bám charter (Jira ingestion về Tuần 1; diff về Tuần 3; MCP+guardrail thành Stretch ở Tuần 5; thêm dòng *Trạng thái thực tế*). v5.0 gộp thêm roadmap cải tiến và đồng bộ trạng thái với code hiện tại (131 test xanh).
 
 ---
 
-## 📦 SẢN PHẨM BÀN GIAO (theo charter)
+## 📦 Sản phẩm bàn giao (charter)
 
 - **Ingestion pipeline 3 nguồn** → normalized docs + entity extraction
 - **Knowledge base**
@@ -15,7 +17,7 @@
 - **MCP server** + guardrail
 - **Report + demo**
 
-## ✅ TIÊU CHÍ HOÀN THÀNH (theo charter)
+## ✅ Tiêu chí hoàn thành (charter)
 
 - Ingest đầy đủ 3 nguồn vào knowledge base; pipeline có **unit test** và **reproducible**.
 - Knowledge base **truy hồi chính xác toàn bộ mention** của một entity qua backlink.
@@ -26,7 +28,7 @@
 
 ---
 
-## 🛠️ TECH STACK ĐÃ CHỐT
+## 🛠️ Tech stack đã chốt
 
 | Thành phần             | Quyết định                                             | Lý do                                                             |
 | ---------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -37,8 +39,6 @@
 | **Cadence**            | Daily batch                                            | Chạy một lần mỗi ngày, sinh `report.md`                           |
 
 > **Lý do bỏ LangChain:** LangChain là "hộp đen" khổng lồ — khi Agent không chịu gọi Tool, debug mất hàng giờ mà không rõ lỗi ở layer nào. Với 6 tuần solo dev, kiểm soát từng dòng code quan trọng hơn dùng framework. ReAct loop viết thẳng bằng OpenAI SDK chỉ ~50 dòng và hoàn toàn trong tầm kiểm soát.
-
----
 
 ## 🗓️ Tuần 1: Thiết Kế & Nền Tảng Dữ Liệu (Design + Jira Ingestion)
 
@@ -138,8 +138,6 @@ Viết connector Jira trả về `normalized_doc` dict theo contract dùng chung
 
 > **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/storage/init_db.py`, `src/storage/sqlite_store.py`, `src/storage/chroma_store.py`, `src/ingestion/jira_connector.py`, `src/ingestion/entity_extractor.py`. Bộ Jira synthetic `data/jira/jira_synthetic_AIP.json` có 144 anomaly (36 mỗi loại) + label `_ground_truth`.
 
----
-
 ## 🗓️ Tuần 2: Hoàn Thiện Ingestion & Knowledge Base
 
 _Mục tiêu (charter): Bổ sung ingestion cho Confluence và meeting notes; gắn wikilink/backlink giữa các entity; hoàn thiện truy vấn theo link, metadata và keyword trên vault._
@@ -175,8 +173,6 @@ Entity Extractor sinh backlink từ mention (Jira key trong Confluence/Meeting) 
 - **Theo keyword:** semantic + keyword search trên các collection ChromaDB
 
 > **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/ingestion/confluence_connector.py`, `src/ingestion/meeting_notes_connector.py`, `src/storage/chroma_store.py` (3 collection, filter epic/source/status), bảng `backlinks` đã populate. _Hạn chế hiện tại:_ backlink đã lưu đầy đủ nhưng **chưa được surface trong report UI** (Report Agent chưa query bảng backlinks) — để dành cho tính năng "related tasks".
-
----
 
 ## 🗓️ Tuần 3: Report Agent (OpenAI SDK + ReAct Loop)
 
@@ -309,8 +305,6 @@ Ví dụ sai:   "Task AIP-45 có vẻ đang bị chậm"
 
 > **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/agents/tools.py` (4 tool: thêm `get_tasks_changed_since` cho diff dài hạn), `src/agents/report_agent.py` (ReAct loop + retry/backoff), `src/agents/report_pipeline.py`. Day-over-day diff tại `src/storage/sqlite_store.py::get_daily_diff()`. Live run gần nhất: **24 citation / 3 vòng lặp**.
 
----
-
 ## 🗓️ Tuần 4: Concern Engine (Rule-based + Cross-source)
 
 _Mục tiêu (charter): Triển khai tầng rule-based (stalled, blocker, deadline); triển khai cross-source conflict qua entity link, có verify live khi cần; thêm severity scoring và lý giải cho mỗi concern._
@@ -382,9 +376,7 @@ def score_severity(concern_type: str, **kwargs) -> tuple[int, str]:
         return 5, "Jira đánh dấu Done nhưng tài liệu khác vẫn ghi nhận đang pending."
 ```
 
-> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/agents/concern_engine.py`. Tinh chỉnh thực tế: stalled-rule phân tầng (label `needs-review` → sev 4; idle > 30 ngày không label → sev 2 "chronic backlog"; còn lại → sev 3). Cross-source dùng rule-based, LLM-verify để dạng optional hook. **Precision 0.92 / Recall 1.00** trên bộ `_ground_truth`.
-
----
+> **Trạng thái thực tế:** ✅ Đã hoàn thành — `src/agents/concern_engine.py`. Tinh chỉnh thực tế: stalled-rule phân tầng (label `needs-review` → sev 4; idle > 30 ngày không label → sev 2 "chronic backlog"; còn lại → sev 3). Cross-source dùng rule-based, LLM-verify để dạng optional hook. **Precision 0.92 / Recall 1.00** trên mẫu (108 anomaly + 100 normal). _Đo full-prevalence (toàn 856 normal): xem Phần III._
 
 ## 🗓️ Tuần 5: Hoàn Thiện & Kiểm Chứng (Stretch: MCP + Guardrail)
 
@@ -456,8 +448,6 @@ Kỳ vọng: pipeline chạy không crash, report có citation, concerns có sev
 
 > **Trạng thái thực tế:** Đánh giá concern engine ✅. **(Stretch) đã hoàn thành sớm** — `src/mcp/server.py` (3 endpoint + `X-API-Key`, fail-closed), `src/guardrail/sanitizer.py` (input injection + output secret redaction), bảng `audit_log` đã ghi. Guardrail chặn **4/4** injection test, **0 false positive**.
 
----
-
 ## 🗓️ Tuần 6: Tích Hợp & Trình Bày (One-Command)
 
 _Mục tiêu (charter): Hoàn thiện luồng end-to-end chạy bằng một lệnh; viết tech report; chuẩn bị demo và tech talk cho team._
@@ -490,12 +480,12 @@ echo "  → output/concerns.json"
 
 ### 6.2 Verification — Definition of Done (6 bước)
 
-- [ ] **V1:** `run_agent.sh` chạy end-to-end không crash trên máy fresh
-- [ ] **V2:** `report.md` có ít nhất 5 citation với `source_id` hợp lệ (tồn tại trong vault)
-- [ ] **V3:** Concern Engine phát hiện được tất cả 4 loại anomaly trong bộ ground truth
-- [ ] **V4:** Precision/Recall của Concern Engine ≥ 80% trên bộ test `_ground_truth`
-- [ ] **V5:** Guardrail chặn được ít nhất 3 test case injection đã chuẩn bị
-- [ ] **V6:** Demo live chạy được trước audience mà không cần can thiệp thủ công
+- [x] **V1:** `run_agent.sh` chạy end-to-end không crash trên máy fresh
+- [x] **V2:** `report.md` có ít nhất 5 citation với `source_id` hợp lệ (tồn tại trong vault)
+- [x] **V3:** Concern Engine phát hiện được tất cả 4 loại anomaly trong bộ ground truth
+- [x] **V4:** Precision/Recall của Concern Engine ≥ 80% trên bộ test `_ground_truth` (mẫu)
+- [x] **V5:** Guardrail chặn được ít nhất 3 test case injection đã chuẩn bị
+- [x] **V6:** Demo live chạy được trước audience mà không cần can thiệp thủ công
 
 ### 6.3 Tech Report & Demo
 
@@ -504,7 +494,7 @@ Tech report bao gồm:
 - Lý do chọn OpenAI SDK trực tiếp thay vì LangChain
 - Lý do chọn dual storage SQLite + ChromaDB và trade-off
 - Benchmark: precision/recall của concern engine, tỉ lệ citation accuracy
-- Lessons learned và roadmap tiếp theo
+- Lessons learned và roadmap tiếp theo (xem Phần III)
 
 Kịch bản demo live (+ tech talk cho team):
 
@@ -515,19 +505,15 @@ Kịch bản demo live (+ tech talk cho team):
 
 > **Trạng thái thực tế:** ✅ Đã hoàn thành — `run_agent.sh` → `src/run_agent.py` (orchestrator có `--reset`, V2/V3 self-check). Tất cả V1–V6 đạt; có `README.md` + `TECH_REPORT.md`.
 
----
-
 ## ➕ Ngoài Kế Hoạch (đã giao vượt charter)
 
-Các hạng mục đã làm thêm, không nằm trong charter ban đầu:
+Các hạng mục đã làm thêm trong giai đoạn build, không nằm trong charter ban đầu:
 
 - **Word/Excel exporters** (`src/exporters.py`): `report.md` → `.docx`, `concerns.json` → `.xlsx` (conditional formatting cho severity = 5); tự chạy trong `run_agent.py`.
 - **`report_pipeline.py`**: tách logic bucketing concern + grounding + sanitize để CLI và MCP server dùng chung.
 - **Retry-with-backoff** trong Report Agent: xử lý lỗi 403/408/429/5xx.
 - **`audit_log`** writes: ghi mọi lần guardrail flag (timestamp / source_id / field / flag_type / snippet).
 - **Incremental `sync_log`**: nền tảng cho ingest tăng dần (idempotent qua UNIQUE index trên `snapshots`).
-
----
 
 ## 💡 Tóm tắt các quyết định kiến trúc
 
@@ -539,3 +525,80 @@ Các hạng mục đã làm thêm, không nằm trong charter ban đầu:
 | Confluence format      | JSON + YAML metadata                    | Plain text       | Metadata filter trong ChromaDB          |
 | Concern Engine logic   | Rule-based SQL trước, LLM chỉ confirm   | LLM toàn bộ      | Deterministic, đo được, tiết kiệm token |
 | Cross-source conflict  | Rule filter → LLM verify (optional)     | LLM scan toàn bộ | Giảm false positive và chi phí API      |
+
+---
+
+## 🚀 Roadmap Cải Tiến (góc PM)
+
+**Góc nhìn:** Product/Project Manager — ưu tiên theo **giá trị cho người dùng** và **mức độ sẵn sàng đưa vào dùng thật**.
+
+> **Trọng tâm:** **Sẵn sàng thực tế (adoption)** — đưa sản phẩm từ "demo trên synthetic" về "PM chạy hằng ngày và nhận digest rủi ro ở nơi họ làm việc".
+
+### A. Tầm nhìn & người dùng
+
+- **Người dùng:** Project Manager / Tech Lead theo dõi nhiều task qua Jira + Confluence + meeting notes.
+- **Việc cần làm (JTBD):** mỗi sáng biết ngay *"hôm nay cần quyết gì, ai đang kẹt, deadline nào nguy hiểm, có gì mâu thuẫn giữa Jira và tài liệu"* — mà không phải tự đọc 1000 ticket.
+- **Giá trị cốt lõi:** **một radar rủi ro hằng ngày *đáng tin* mà PM thực sự hành động theo.** Đáng tin = mỗi nhận định có trích dẫn kiểm chứng được; hành động theo = được giao tận nơi PM làm việc.
+- **Hành trình sản phẩm:** `demo synthetic` ✅ → **`PM chạy hằng ngày, nhận qua Slack`** ✅ (code) → `nối Jira/Confluence thật` ⏳ (code xong, chờ nghiệm thu live) → `nhiều dự án + dashboard`.
+
+### B. Hiện trạng (cập nhật theo code)
+
+Đã có (xem Phần II + các cải tiến mới): ingestion 3 nguồn, dual store, Report Agent có trích dẫn, Concern Engine 4 rule, MCP server, guardrail, exporters; **+ chạy hằng ngày (`scripts/daily_run.sh`), giao Slack (`src/delivery/slack.py`), connector Jira/Confluence API (`src/ingestion/*_api_connector.py`), insights rollup/trends (`src/agents/insights.py`), eval full-prevalence**. **131 test xanh.**
+
+Khoảng trống còn lại *từ góc PM*: (a) connector live **chưa nghiệm thu trên instance thật** (mới mock-test); (b) **API key bị lộ trong git history** (`d2657ea`) chưa xoay; (c) **recall cross-source thấp** (giới hạn dữ liệu meeting); (d) chưa giao Email/Teams; (e) chưa rollup theo epic / observability / multi-project.
+
+### C. Bảng sáng kiến ưu tiên (Now / Next / Later)
+
+Thang điểm: Impact (giá trị PM) × Effort → Ưu tiên. Cột **TT** = trạng thái (✅ xong · ⏳ chưa · 👤 việc của bạn).
+
+### 🟢 NOW — P0
+
+| Sáng kiến | Impact | Effort | TT | Metric |
+| --- | --- | --- | --- | --- |
+| **Chạy hằng ngày + tích lũy lịch sử** (`scripts/daily_run.sh`, không `--reset`) | Cao | Thấp | ✅ | Sau ≥2 ngày "Thay đổi gần đây" có dữ liệu; `get_daily_diff` đúng |
+| **Giao báo cáo qua Slack (MVP)** (`src/delivery/slack.py`, `SLACK_WEBHOOK_URL`) | Cao | Thấp | ✅ | Mỗi run (khi bật webhook) digest tới Slack: tổng quan + top-5 |
+| **Scaffolding nguồn live + secrets gate** (`.env.example`, `SECURITY.md`) | Cao | Thấp | ✅ | `.env.example` đủ field + `SOURCE_MODE`; key lộ nêu rõ phải xoay |
+
+### 🟡 NEXT — P1
+
+| Sáng kiến | Impact | Effort | TT | Metric |
+| --- | --- | --- | --- | --- |
+| **Connector Jira API live** (REST + JQL + phân trang) | Rất cao | Cao | ✅ code (mock test) | Ingest qua `SOURCE_MODE=api`; **chờ nghiệm thu instance thật** |
+| **Connector Confluence API live** | Cao | Cao | ✅ code (mock test) | Ingest Confluence Cloud; chờ nghiệm thu thật. _MVP: strip HTML thô; `linked_jira_epics` để rỗng_ |
+| **Xoay key lộ + scrub git history** (`d2657ea`) | Cao (bảo mật) | Trung | 👤 | Key cũ vô hiệu hóa; history sạch (`git filter-repo`). Script sẵn ở `SECURITY.md` |
+| **Eval full-prevalence + SLO precision actionable** | Trung | Thấp | ✅ | Toàn 856 normal: **recall 1.0**; precision overall 0.52, **actionable (sev≥3) 0.66**, top (sev≥4) 0.87. SLO theo actionable; rule giữ nguyên (siết `needs-review` = overfit synthetic) |
+| **Tăng recall cross-source + LLM verify** | Trung | Trung | ⏳ | Recall cross-source đo được, vượt mức demo (1–2 ca) |
+| **Giao qua Email/Teams** | Trung | Thấp | ⏳ | Digest tới email/Teams ngoài Slack |
+
+### 🔵 LATER — P2
+
+| Sáng kiến | Impact | Effort | TT | Ghi chú |
+| --- | --- | --- | --- | --- |
+| **Rollup theo người phụ trách** (`src/agents/insights.py`) | Trung | Trung | ✅ | "Ai đang quá tải" → `output/insights.json` |
+| **Rollup theo epic** | Trung | Trung | ⏳ | Cần ingest dữ liệu epic vào store (`linked_jira_epics`) |
+| **Xu hướng theo thời gian** (`weekly_changes`) | Trung | Trung | ✅ (đầy đủ khi có lịch sử) | "Đổi gì so với tuần trước" qua `diff_since` → `insights.json` |
+| **Observability + theo dõi chi phí LLM** | Trung | Trung | ⏳ | Metric số concern theo ngày, latency, token/cost mỗi run |
+| **Multi-project + dashboard nhẹ** | Trung | Cao | ⏳ | Vượt phạm vi 1 dự án (AIP) |
+
+### D. Rủi ro & phụ thuộc
+
+- **Bảo mật chặn adoption:** connector live (P1) đưa Jira/Confluence token vào → **phải xoay key lộ (`d2657ea`) trước**. Xem `SECURITY.md`.
+- **Phụ thuộc lịch sử:** "Xu hướng / Thay đổi tuần này" chỉ có nghĩa **sau khi** scheduler đã tích lũy nhiều ngày snapshot.
+- **Phụ thuộc môi trường thật:** connector live cần một instance Jira/Confluence thật + quyền truy cập để nghiệm thu — không thể chỉ bằng synthetic.
+- **Chi phí/độ ổn định LLM:** chạy hằng ngày tăng lệnh gọi LLM (đã có retry + fallback deterministic nên không crash; cần theo dõi chi phí — P2).
+
+### E. KPI tổng
+
+- **Adoption:** số PM chạy/nhận digest hằng ngày; số ngày liên tục pipeline chạy không lỗi.
+- **Độ tin:** precision actionable (full-prevalence) đạt SLO; tỉ lệ nhận định có citation hợp lệ.
+- **Tính hành động:** tỉ lệ digest được mở/click; số "Decisions Needed Today" được xử lý.
+
+### F. Phụ lục — Chạy hằng ngày (scheduler)
+
+`run_agent.sh` dùng `--reset` (baseline sạch cho demo). Để **tích lũy lịch sử** day-over-day, chạy `scripts/daily_run.sh` (KHÔNG `--reset`). Ví dụ cron 7:00 mỗi sáng:
+
+```cron
+0 7 * * *  cd /path/to/VSF_AI-Intelligent-Agent-For-PM && ./scripts/daily_run.sh >> logs/daily.log 2>&1
+```
+
+Hoặc systemd timer (`daily_run.service` + `daily_run.timer` với `OnCalendar=*-*-* 07:00:00`). Khi đặt `SLACK_WEBHOOK_URL`, mỗi lần chạy sẽ tự giao digest tới Slack.
